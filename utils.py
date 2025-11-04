@@ -98,8 +98,8 @@ def split_along_grid(streamline_start, streamline_end, streamline_tract, dimensi
     absoluteCords = np.hstack((absoluteCords, np.ones((absoluteCords.shape[0], 1))))
     absoluteCords_end = np.hstack((absoluteCords_end, np.ones((absoluteCords.shape[0], 1))))
 
-    streamline_start = (absoluteCords @ affine)[:,:3]
-    streamline_end = (absoluteCords_end @ affine)[:, :3]
+    streamline_start = absoluteCords[:, :3]#(absoluteCords @ affine)[:,:3]
+    streamline_end = absoluteCords_end[:, :3]#(absoluteCords_end @ affine)[:, :3]
     points = np.stack((streamline_start, streamline_end), axis=1)/WORLD_SPACE_DIMENSION
 
     return points, streamline_tract
@@ -120,19 +120,21 @@ def write_tract_file(streamline_tract, points, tract_dir):
                 f.write(np.asarray(annotation_id, dtype='<u8').tobytes())  # Write ID as uint64le
 
         tract_id += 1
-def write_all_points(points, id_dir):
+def write_all_points(points, id_dir, streamline_tract):
     for i in range(len(points)):
         id_file = os.path.join(id_dir, str(i))
         with open(id_file, 'wb') as f:
             f.write(np.asarray(points[i][0], dtype='<f4').tobytes())
             f.write(np.asarray(points[i][1], dtype='<f4').tobytes())
+            f.write(np.asarray([1], dtype='<u4').tobytes())
+            f.write(np.asarray(streamline_tract[i], dtype='<u8').tobytes())
 
 def write_spatial_and_info(points, dimensions, affine, grid_densities, output_dir):
     grid_shapes = []
     chunk_sizes = []
     ids = np.arange(0, len(points))
     homogeneous_streamline = np.hstack((points[:, 0], np.ones((points[:, 0].shape[0], 1))))
-    absoluteCords = (homogeneous_streamline @ np.linalg.inv(affine))[:, :3]
+    absoluteCords = homogeneous_streamline[:, :3] #(homogeneous_streamline @ np.linalg.inv(affine))[:, :3]
     for density_index in range(len(grid_densities)):
         spatial_dir = os.path.join(output_dir, str(density_index))
         os.makedirs(spatial_dir, exist_ok=True)
@@ -154,19 +156,21 @@ def write_spatial_and_info(points, dimensions, affine, grid_densities, output_di
                             spatial_index[f"{i}_{j}_{k}"] = [points[cells_xyz], ids[cells_xyz]]
 
         for cell_key, annotations in spatial_index.items():
-            if len(annotations[0]) > 0:
+            #if len(annotations[0]) > 0:
                 cell_file = os.path.join(spatial_dir, cell_key)
                 with open(cell_file, 'wb') as f:
                     f.write(np.asarray(len(annotations[0]), dtype='<u8').tobytes())
-                    for start, end in annotations[0]:
+                    for i in range(len(annotations[0])):
+                        start = annotations[0][i][0]
+                        end = annotations[0][i][1]
                         f.write(np.asarray(start, dtype='<f4').tobytes())
                         f.write(np.asarray(end, dtype='<f4').tobytes())
                     for annotation_id in annotations[1]:
                         f.write(np.asarray(annotation_id, dtype='<u8').tobytes())  # Write ID as uint64le
                 print(f"Saved spatial index for {cell_key} with {len(annotations[0])} annotations on grid density {grid_densities[density_index]}.")
 
-    lb = np.min(np.min(np.reshape(points, (-1, 3)), axis=0))
-    ub = np.max(np.min(np.reshape(points, (-1, 3)), axis=0))
+    lb = [0, 0, 0]
+    ub = dimensions
     # Save info file
     info = {
         "@type": "neuroglancer_annotations_v1",
@@ -175,23 +179,23 @@ def write_spatial_and_info(points, dimensions, affine, grid_densities, output_di
             "y": [WORLD_SPACE_DIMENSION, "mm"],
             "z": [WORLD_SPACE_DIMENSION, "mm"]
         },
-        "lower_bound": lb.tolist(),
-        "upper_bound": ub.tolist(),
+        "lower_bound": lb,
+        "upper_bound": ub,
         "annotation_type": "LINE",
         "properties": [],
         "relationships": [
             {
                 "id": "tract",
-                "key": "by_tract" 
+                "key": "./by_tract" 
             }
         ],
-        "by_id": {"key": "annotations_by_id"},
+        "by_id": {"key": "./by_id"},
         "spatial": [
             {
                 "key": f"{i}",
                 "grid_shape": grid_shapes[i],
                 "chunk_size": chunk_sizes[i],
-                "limit": 5000000000
+                "limit": points.shape[0]
             } for i in range(len(grid_densities))
         ]
     }
