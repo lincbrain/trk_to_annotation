@@ -3,8 +3,13 @@ import numpy as np
 import psutil
 import os
 import json
+import random
 from dipy.io.streamline import load_trk
 WORLD_SPACE_DIMENSION = 1
+LIMIT = 4000000
+
+
+random.seed(0)
 
 def generate_colors(num_colors):
     hues = np.linspace(0, 1, num_colors, endpoint=False)  # Evenly spaced hues
@@ -145,6 +150,7 @@ def write_spatial_and_info(points, dimensions, affine, grid_densities, output_di
         grid_shapes.append(grid_shape)
         spatial_index = {f"{x}_{y}_{z}": [[],[]] for x in range(grid_shape[0]) for y in range(grid_shape[1]) for z in range(grid_shape[2])}
         cells = np.floor((absoluteCords[:,:3]/dimensions)*grid_shape).astype(int)
+        maxAmount = 0
         for i in range(grid_shape[0]):
             cells_x = cells[:, 0] == i
             if np.any(cells_x):
@@ -153,20 +159,26 @@ def write_spatial_and_info(points, dimensions, affine, grid_densities, output_di
                     if np.any(cells_xy):
                         for k in range(grid_shape[2]):
                             cells_xyz = cells_xy*(cells[:, 2] == k)
-                            spatial_index[f"{i}_{j}_{k}"] = [points[cells_xyz], ids[cells_xyz]]
+                            maxAmount = max(maxAmount, len(points[cells_xyz]))
+                            spatial_index[f"{i}_{j}_{k}"] = [np.array(points[cells_xyz]), np.array(ids[cells_xyz])]
 
         for cell_key, annotations in spatial_index.items():
             #if len(annotations[0]) > 0:
+                indices = np.random.permutation(len(annotations[0]))
+                prob = min(LIMIT/maxAmount, 1.0)
+                rand_selected = np.random.rand(len(annotations[0])) <= prob
                 cell_file = os.path.join(spatial_dir, cell_key)
                 with open(cell_file, 'wb') as f:
-                    f.write(np.asarray(len(annotations[0]), dtype='<u8').tobytes())
-                    for i in range(len(annotations[0])):
-                        start = annotations[0][i][0]
-                        end = annotations[0][i][1]
-                        f.write(np.asarray(start, dtype='<f4').tobytes())
-                        f.write(np.asarray(end, dtype='<f4').tobytes())
-                    for annotation_id in annotations[1]:
-                        f.write(np.asarray(annotation_id, dtype='<u8').tobytes())  # Write ID as uint64le
+                    
+                    if len(annotations[0]) > 0:
+                        f.write(np.asarray(len(annotations[0][indices][rand_selected]), dtype='<u8').tobytes())
+                        for start, end in annotations[0][indices][rand_selected]:
+                            f.write(np.asarray(start, dtype='<f4').tobytes())
+                            f.write(np.asarray(end, dtype='<f4').tobytes())
+                        for annotation_id in annotations[1][indices][rand_selected]:
+                            f.write(np.asarray(annotation_id, dtype='<u8').tobytes())  # Write ID as uint64le
+                    else:
+                        f.write(np.asarray(0, dtype='<u8').tobytes())
                 print(f"Saved spatial index for {cell_key} with {len(annotations[0])} annotations on grid density {grid_densities[density_index]}.")
 
     lb = [0, 0, 0]
@@ -195,7 +207,7 @@ def write_spatial_and_info(points, dimensions, affine, grid_densities, output_di
                 "key": f"{i}",
                 "grid_shape": grid_shapes[i],
                 "chunk_size": chunk_sizes[i],
-                "limit": points.shape[0]
+                "limit": LIMIT
             } for i in range(len(grid_densities))
         ]
     }

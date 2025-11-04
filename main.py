@@ -14,7 +14,7 @@ def main(trk_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'as
     tract_dir = os.path.join(output_dir, 'by_tract')
     os.makedirs(tract_dir, exist_ok=True)
     
-    grid_densities = [1, 2, 4, 8]
+    grid_densities = [1, 2, 4, 8, 16]
     
     streamline_start, streamline_end, streamline_tract, sft = load_from_file(trk_file)
     points, streamline_tract = split_along_grid(streamline_start, streamline_end, streamline_tract, sft.dimensions, sft.affine.T, grid_densities)
