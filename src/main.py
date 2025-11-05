@@ -1,6 +1,4 @@
-import numpy as np
 import os
-from dipy.io.streamline import load_trk
 import time
 from utils import load_from_file, log_resource_usage, split_along_grid, write_all_lines, write_spatial_and_info, write_tract_file
 

@@ -4,7 +4,6 @@ import numpy as np
 import psutil
 import os
 import json
-import random
 WORLD_SPACE_DIMENSION = 1
 LIMIT = 40000
 
