@@ -1,4 +1,3 @@
-from matplotlib.colors import hsv_to_rgb
 import nibabel
 import numpy as np
 import psutil
