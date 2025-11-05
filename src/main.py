@@ -3,7 +3,7 @@ import time
 from utils import load_from_file, log_resource_usage, split_along_grid, write_all_lines, write_spatial_and_info, write_tract_file
 
 
-def main(trk_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets/sub-I58_sample-hemi_desc-CSD_tractography.smalltest.trk')):
+def main(trk_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), '../assets/sub-I58_sample-hemi_desc-CSD_tractography.smalltest.trk')):
     start_time = time.time()
 
     output_dir = './precomputed_annotations_new'

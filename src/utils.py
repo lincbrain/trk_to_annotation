@@ -34,7 +34,7 @@ def log_resource_usage(stage):
     print(f"[{stage}] Memory Usage: {memory.percent}% ({memory.used / (1024**2):.2f} MB used / {memory.total / (1024**2):.2f} MB total)")
 
 
-def load_from_file(trk_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets/sub-I58_sample-hemi_desc-CSD_tractography.smalltest.trk')):
+def load_from_file(trk_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), '../assets/sub-I58_sample-hemi_desc-CSD_tractography.smalltest.trk')):
     """Load streamlines from trk file"""
     print("Loading streamlines...")
     tracts = nibabel.streamlines.load(trk_file)
