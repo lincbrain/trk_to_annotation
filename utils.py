@@ -47,15 +47,22 @@ def load_from_file(trk_file = os.path.join(os.path.dirname(os.path.abspath(__fil
     log_resource_usage("After Loading Streamlines")
 
     #get every start point for each line in each tract (remove the last point from each tract)
-    streamline_start = np.concatenate([np.array(sl)[:-1] for sl in all_streamlines], axis=0)
+    streamline_start = np.delete(all_streamlines._data, np.append(all_streamlines._offsets[1:]-1, len(all_streamlines._data)-1), axis=0)
+
     #get every end point for each line in each tract (remove the first point from each tract)
-    streamline_end = np.concatenate([np.array(sl)[1:] for sl in all_streamlines], axis=0)
+    streamline_end = np.delete(all_streamlines._data, all_streamlines._offsets, axis=0)
+    
     #index to indicate which tract each line corisponds to
-    streamline_tract = np.concatenate([np.full(all_streamlines[i].shape[0]-1, i) for i in range(len(all_streamlines))])
+    streamline_tract = np.concatenate([np.full(all_streamlines._lengths[i]-1, i) for i in range(len(all_streamlines._lengths))])
 
     return streamline_start, streamline_end, streamline_tract, lb, ub
 
-#create new lines everytime a line crosses a grid line of the finest grid 
+#Create new lines everytime a line crosses a grid line of the finest grid
+#The idea is to first split everywhere it crosses an x grid line, than y, than z
+#This is done one at a time because if a line crosses more than one grid line we don't need to figure out where it crosses first. This algorithm will figure that out for us
+#The algorithm first creates a bunch of placeholder points working as places to put in memory points if we do find that a line crosses a grid line and needs to be split
+#Then find out what lines cross the grid lines and fill in their corisponding placeholder points
+#Then remove all placeholder points that were untouched
 def split_along_grid(streamline_start, streamline_end, streamline_tract, lb, ub, grid_densities):
     dimensions = ub-lb
     #for each axis (x, y, z)
@@ -65,7 +72,7 @@ def split_along_grid(streamline_start, streamline_end, streamline_tract, lb, ub,
         finest_cells_end = np.floor(((streamline_end-lb)/dimensions)*([grid_densities[-1]]*3)).astype(int)
 
         #for each line split it into two lines where the point connecting them is a nan point that can be easily identified and removed later
-        #these points are a placeholder points incase this line travels across the grid and we need to split it into two lines
+        #these points are placeholder points incase this line travels across the grid and we need to split it into two lines
         finest_cells_start_not_rounded = np.repeat(np.expand_dims(((streamline_start - lb)/dimensions)*([grid_densities[-1]]*3), axis=1), 2,axis=1)
         finest_cells_start_not_rounded[:, 1] = [np.nan, np.nan, np.nan]
         finest_cells_end_not_rounded = np.repeat(np.expand_dims(((streamline_end-lb)/dimensions)*([grid_densities[-1]]*3), axis=1), 2, axis=1)
