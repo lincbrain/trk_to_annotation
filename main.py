@@ -16,11 +16,11 @@ def main(trk_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'as
     
     grid_densities = [1, 2, 4, 8, 16]
     
-    streamline_start, streamline_end, streamline_tract, lb, ub = load_from_file(trk_file)
-    points, streamline_tract = split_along_grid(streamline_start, streamline_end, streamline_tract, lb, ub, grid_densities)
-    write_tract_file(streamline_tract, points, tract_dir)
-    write_all_lines(points, id_dir, streamline_tract)
-    write_spatial_and_info(points, lb, ub, grid_densities, streamline_tract, output_dir)
+    streamline_start, streamline_end, streamline_tract, streamline_scalars, scalar_keys, lb, ub = load_from_file(trk_file)
+    points, streamline_tract, streamline_scalars = split_along_grid(streamline_start, streamline_end, streamline_tract, streamline_scalars, lb, ub, grid_densities)
+    write_tract_file(streamline_tract, points, streamline_scalars, tract_dir)
+    write_all_lines(points, id_dir, streamline_tract, streamline_scalars)
+    write_spatial_and_info(points, lb, ub, grid_densities, streamline_tract, streamline_scalars, scalar_keys, output_dir)
 
     log_resource_usage("After Formatting Annotations")
 

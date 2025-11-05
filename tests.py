@@ -6,8 +6,8 @@ from utils import load_from_file, split_along_grid
 
 class TestConvertMethods(unittest.TestCase):
     def testLength(self):
-        streamline_start, streamline_end, streamline_tract, lb, ub = load_from_file()
-        points, streamline_tract = split_along_grid(streamline_start, streamline_end, streamline_tract, lb, ub, [32])
+        streamline_start, streamline_end, streamline_tract, streamline_scalars, scalar_keys, lb, ub = load_from_file()
+        points, streamline_tract, streamline_scalars = split_along_grid(streamline_start, streamline_end, streamline_tract, streamline_scalars, lb, ub, [32])
         startingDist = 0.0
         for i in range(len(streamline_start)):
             diff = streamline_end[i] - streamline_start[i]
@@ -22,7 +22,7 @@ class TestConvertMethods(unittest.TestCase):
         streamline_start = np.array([[0.2, 0.3, 0.4]])
         streamline_end = np.array([[0.6, 0.3, 0.4]])
         streamline_tract = np.array([0])
-        points, streamline_tract = split_along_grid(streamline_start, streamline_end, streamline_tract, np.array([0.0, 0.0, 0.0]), np.array([1.0, 1.0, 1.0]), [2])
+        points, streamline_tract, streamline_scalars = split_along_grid(streamline_start, streamline_end, streamline_tract, np.zeros((1, 0)), np.array([0.0, 0.0, 0.0]), np.array([1.0, 1.0, 1.0]), [2])
         self.assertEqual(points.shape[0], 2)
         self.assertEqual(points[0][0][0], 0.2)
         self.assertEqual(points[1][1][0], 0.6)
@@ -33,7 +33,7 @@ class TestConvertMethods(unittest.TestCase):
         streamline_start = np.array([[0.2, 0.45, 0.4]])
         streamline_end = np.array([[0.6, 0.9, 0.4]])
         streamline_tract = np.array([0])
-        points, streamline_tract = split_along_grid(streamline_start, streamline_end, streamline_tract, np.array([0.0, 0.0, 0.0]), np.array([1.0, 1.0, 1.0]), [2])
+        points, streamline_tract, streamline_scalars = split_along_grid(streamline_start, streamline_end, streamline_tract, np.zeros((1, 0)), np.array([0.0, 0.0, 0.0]), np.array([1.0, 1.0, 1.0]), [2])
         self.assertEqual(points.shape[0], 3)
         self.assertEqual(points[0][0][0], 0.2)
         self.assertEqual(points[0][0][1], 0.45)
@@ -46,7 +46,7 @@ class TestConvertMethods(unittest.TestCase):
         streamline_start = np.array([[0.2, 0.45, 0.4]])
         streamline_end = np.array([[0.3, 0.3, 0.4]])
         streamline_tract = np.array([0])
-        points, streamline_tract = split_along_grid(streamline_start, streamline_end, streamline_tract, np.array([0.0, 0.0, 0.0]), np.array([1.0, 1.0, 1.0]), [2])
+        points, streamline_tract, streamline_scalars = split_along_grid(streamline_start, streamline_end, streamline_tract, np.zeros((1, 0)), np.array([0.0, 0.0, 0.0]), np.array([1.0, 1.0, 1.0]), [2])
         self.assertEqual(points.shape[0], 1)
         self.assertEqual(points[0][0][0], 0.2)
         self.assertEqual(points[0][0][1], 0.45)
