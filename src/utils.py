@@ -34,8 +34,25 @@ def log_resource_usage(stage):
     print(f"[{stage}] Memory Usage: {memory.percent}% ({memory.used / (1024**2):.2f} MB used / {memory.total / (1024**2):.2f} MB total)")
 
 
-def load_from_file(trk_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), '../assets/sub-I58_sample-hemi_desc-CSD_tractography.smalltest.trk')):
-    """Load streamlines from trk file"""
+def load_from_file(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../assets/sub-I58_sample-hemi_desc-CSD_tractography.smalltest.trk')):
+    """Load streamlines from trk file
+    Returns
+    ----------
+    streamline_start: shape (n, 3) np array of floats
+        stores all the starting points for each annotation
+    streamline_end: shape (n, 3) np array of floats
+        stores all the end points for each annotation
+    streamline_tract: shape (n) np array of int
+        stores what tract each annotation is in
+    streamline_scalars: shape (n, S_n) np array of floats
+        stores scalars for each annotation if scalars were in the tract file
+    scalar_keys: shape (n) np array of strings
+        the keys for each of the scalars that may have been in the tract file
+    lb: shape: (3, 3) np array of floats
+        stores the lower bound of the annotations
+    ub: shape: (3,3) np array of floats
+        stores the upper bound of the annotations
+    """
     print("Loading streamlines...")
     tracts = nibabel.streamlines.load(trk_file)
     all_streamlines = tracts.tractogram.streamlines
@@ -69,13 +86,39 @@ def load_from_file(trk_file=os.path.join(os.path.dirname(os.path.abspath(__file_
     return streamline_start, streamline_end, streamline_tract, streamline_scalars, scalar_keys, lb, ub
 
 
-def split_along_grid(streamline_start, streamline_end, streamline_tract, streamline_scalars, lb, ub, grid_densities):
+def split_along_grid(streamline_start: np.ndarray, streamline_end: np.ndarray, streamline_tract: np.ndarray, streamline_scalars: np.ndarray, lb: np.ndarray, ub: np.ndarray, grid_densities: list[int]):
     """Create new lines everytime a line crosses a grid line of the finest grid
     The idea is to first split everywhere it crosses an x grid line, than y, than z
     This is done one at a time because if a line crosses more than one grid line we don't need to figure out where it crosses first. This algorithm will figure that out for us
     The algorithm first creates a bunch of placeholder points working as places to put in memory points if we do find that a line crosses a grid line and needs to be split
     Then find out what lines cross the grid lines and fill in their corisponding placeholder points
     Then remove all placeholder points that were untouched
+
+    Parameters
+    ----------
+    streamline_start: shape (n, 3) np array of floats
+        stores all the starting points for each annotation
+    streamline_end: shape (n, 3) np array of floats
+        stores all the end points for each annotation
+    streamline_tract: shape (n) np array of int
+        stores what tract each annotation is in
+    streamline_scalars: shape (n, S_n) np array of floats
+        stores scalars for each annotation if scalars were in the tract file
+    lb: shape: (3, 3) np array of floats
+        stores the lower bound of the annotations
+    ub: shape: (3,3) np array of floats
+        stores the upper bound of the annotations
+    grid_densities: list[int]
+        stores how many splits the grids have on each axis. Each number represents a spacial layer, should be increasing, and each should be a power of two 
+
+    Returns
+    ----------
+    lines: shape (m, 2, 3) np array of floats
+        stores the starting point and ending point for each annotation
+    streamline_tract: shape (m) np array of ints
+        stores what tract each annotation is in
+    streamline_scalars: shape (m, S_n) np array of floats
+        stores scalars for each annotation if scalars were in the tract file
     """
 
     dimensions = ub-lb
@@ -174,8 +217,21 @@ def split_along_grid(streamline_start, streamline_end, streamline_tract, streaml
     return lines, streamline_tract, streamline_scalars
 
 
-def write_tract_file(streamline_tract, lines, streamline_scalars, tract_dir):
-    """For each tract write all the lines in that tract to a file in the same format as discribed by https://github.com/google/neuroglancer/blob/master/src/datasource/precomputed/annotations.md#multiple-annotation-encoding"""
+def write_tract_file(lines: np.ndarray, streamline_tract: np.ndarray, streamline_scalars: np.ndarray, tract_dir: str):
+    """For each tract write all the lines in that tract to a file in the same format as discribed by https://github.com/google/neuroglancer/blob/master/src/datasource/precomputed/annotations.md#multiple-annotation-encoding
+
+    Parameters
+    ----------
+    lines: shape (m, 2, 3) np array of floats
+        stores the starting point and ending point for each annotation
+    streamline_tract: shape (m) np array of ints
+        stores what tract each annotation is in
+    streamline_scalars: shape (m, S_n) np array of floats
+        stores scalars for each annotation if scalars were in the tract file
+    tract_dir: string
+        the directory where tract files will be saved to
+    """
+
     ids = np.arange(0, len(lines))
     tract_id = 0
     while np.any(streamline_tract == tract_id):
@@ -202,8 +258,20 @@ def write_tract_file(streamline_tract, lines, streamline_scalars, tract_dir):
         tract_id += 1
 
 
-def write_all_lines(lines, id_dir, streamline_tract, streamline_scalars):
-    """For each line write it to the id file in the format discribed by https://github.com/google/neuroglancer/blob/master/src/datasource/precomputed/annotations.md#single-annotation-encoding"""
+def write_all_lines(lines: np.ndarray, streamline_tract: np.ndarray, streamline_scalars: np.ndarray, id_dir: str):
+    """For each line write it to the id file in the format discribed by https://github.com/google/neuroglancer/blob/master/src/datasource/precomputed/annotations.md#single-annotation-encoding
+
+    Parameters
+    ----------
+    lines: shape (m, 2, 3) np array of floats
+        stores the starting point and ending point for each annotation
+    streamline_tract: shape (m) np array of ints
+        stores what tract each annotation is in
+    streamline_scalars: shape (m, S_n) np array of floats
+        stores scalars for each annotation if scalars were in the tract file
+    id_dir: string
+        the directory where id files will be saved to
+    """
     for i in range(len(lines)):
         id_file = os.path.join(id_dir, str(i))
         with open(id_file, 'wb') as f:
@@ -220,9 +288,36 @@ def write_all_lines(lines, id_dir, streamline_tract, streamline_scalars):
             f.write(np.asarray(streamline_tract[i], dtype='<u8').tobytes())
 
 
-def write_spatial_and_info(lines, lb, ub, grid_densities, streamline_tracts, streamline_scalars, scalar_keys, output_dir):
+def write_spatial_and_info(lines: np.ndarray, lb: np.ndarray, ub: np.ndarray, grid_densities: list[int], streamline_tracts: np.ndarray, streamline_scalars: np.ndarray, scalar_keys: np.ndarray, output_dir: str):
     """For each spatial level find which lines belong to which sections
     Then write them to that section's file
+
+
+    Parameters
+    ----------
+    lines: shape (m, 2, 3) np array of floats
+        stores the starting point and ending point for each annotation
+    lb: shape: (3, 3) np array of floats
+        stores the lower bound of the annotations
+    ub: shape: (3,3) np array of floats
+        stores the upper bound of the annotations
+    streamline_tract: shape (m) np array of ints
+        stores what tract each annotation is in
+    streamline_scalars: shape (m, S_n) np array of floats
+        stores scalars for each annotation if scalars were in the tract file
+    id_dir: string
+        the directory where id files will be saved to
+    grid_densities: list[int]
+        stores how many splits the grids have on each axis. Each number represents a spacial layer, should be increasing, and each should be a power of two 
+    streamline_tract: shape (m) np array of ints
+        stores what tract each annotation is in
+    streamline_scalars: shape (m, S_n) np array of floats
+        stores scalars for each annotation if scalars were in the tract file
+    scalar_keys: shape (m) np array of strings
+        the keys for each of the scalars that may have been in the tract file
+    output_dir: string
+        the directory that contains all the files that will be written to including the info file
+
     """
     grid_shapes = []
     chunk_sizes = []
@@ -280,12 +375,12 @@ def write_spatial_and_info(lines, lb, ub, grid_densities, streamline_tracts, str
                 if len(annotations[0]) > 0:
                     f.write(np.asarray(
                         len(annotations[0][selected_lines]), dtype='<u8').tobytes())
-                    starts = annotations[0][selected_lines]
-                    ends = annotations[0][selected_lines]
+                    starts = annotations[0][selected_lines][:, 0]
+                    ends = annotations[0][selected_lines][:, 1]
                     scalars = annotations[3][selected_lines]
                     for i in range(len(annotations[0][selected_lines])):
-                        start = starts[i][0]
-                        end = ends[i][1]
+                        start = starts[i]
+                        end = ends[i]
                         f.write(np.asarray(start, dtype='<f4').tobytes())
                         f.write(np.asarray(end, dtype='<f4').tobytes())
                         f.write(np.asarray(scalars[i], dtype='<f4').tobytes())
