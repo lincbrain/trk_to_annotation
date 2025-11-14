@@ -1,9 +1,11 @@
 import os
 import time
-from utils import load_from_file, log_resource_usage, split_along_grid, write_all_lines, write_spatial_and_info, write_tract_file
+from sharding import write_tract_shard
+from utils import make_segmenation_layer, load_from_file, log_resource_usage, split_along_grid, write_all_lines, write_spatial_and_info, write_tract_file
+import numpy as np
 
 
-def main(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../assets/sub-I58_sample-hemi_desc-CSD_tractography.smalltest.trk'), output_dir: str = './precomputed_annotations_new', grid_densities: list[int] = [1, 2, 4, 8, 16]):
+def main(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../assets/sub-I58_sample-hemi_desc-CSD_tractography.smalltest.trk'), output_dir: str = './precomputed_annotations_new', grid_densities: list[int] = [1, 2, 4, 8, 16, 32]):
     """
     Parameters
     ----------
@@ -12,7 +14,7 @@ def main(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__))
     output_dir: string
         path to the output directory
     grid_densities: list[int]
-        stores how many splits the grids have on each axis. Each number represents a spacial layer, should be increasing, and each should be a power of two 
+        stores how many splits the grids have on each axis. Each number represents a spacial layer, should be increasing, and each should be a power of two
     """
 
     start_time = time.time()
@@ -22,14 +24,40 @@ def main(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__))
     tract_dir = os.path.join(output_dir, 'by_tract')
     os.makedirs(tract_dir, exist_ok=True)
 
-    streamline_start, streamline_end, streamline_tract, streamline_scalars, scalar_keys, lb, ub = load_from_file(
+    batchSize = 100000000
+
+    streamline_start, streamline_end, streamline_tracts_pre, streamline_scalars_pre, scalar_keys, lb, ub, offsets = load_from_file(
         trk_file)
-    lines, streamline_tract, streamline_scalars = split_along_grid(
-        streamline_start, streamline_end, streamline_tract, streamline_scalars, lb, ub, grid_densities)
-    write_tract_file(lines, streamline_tract, streamline_scalars, tract_dir)
-    write_all_lines(lines, streamline_tract, streamline_scalars, id_dir)
-    write_spatial_and_info(lines, lb, ub, grid_densities,
-                           streamline_tract, streamline_scalars, scalar_keys, output_dir)
+    lines, streamline_tracts, streamline_scalars, offsets = split_along_grid(
+        streamline_start[0:batchSize], streamline_end[0:batchSize], streamline_tracts_pre[0:batchSize], streamline_scalars_pre[0:batchSize], lb, ub, offsets, grid_densities)
+    streamline_start = streamline_start[batchSize:]
+    streamline_end = streamline_end[batchSize:]
+    streamline_tracts_pre = streamline_tracts_pre[batchSize:]
+    streamline_scalars_pre = streamline_scalars_pre[batchSize:]
+
+    while streamline_tracts_pre.shape[0] > 0:
+        print(f"batch size: {batchSize}")
+        print(f"remaining: {streamline_tracts_pre.shape[0]}")
+
+        lines_batch, streamline_tracts_batch, streamline_scalars_batch, offsets = split_along_grid(
+            streamline_start[0:batchSize], streamline_end[0:batchSize], streamline_tracts_pre[0:batchSize], streamline_scalars_pre[0:batchSize], lb, ub, offsets, grid_densities)
+        streamline_start = streamline_start[batchSize:]
+        streamline_end = streamline_end[batchSize:]
+        streamline_tracts_pre = streamline_tracts_pre[batchSize:]
+        streamline_scalars_pre = streamline_scalars_pre[batchSize:]
+        lines = np.concatenate((lines, lines_batch))
+        streamline_tracts = np.concatenate(
+            (streamline_tracts, streamline_tracts_batch))
+        streamline_scalars = np.concatenate(
+            (streamline_scalars, streamline_scalars_batch))
+
+    tract_file = os.path.join(tract_dir, "0.shard")
+    with open(tract_file, 'wb') as f:
+        write_tract_shard(offsets, streamline_scalars, lines, f)
+    write_spatial_and_info(lines, grid_densities,
+                           streamline_tracts, streamline_scalars, scalar_keys, lb, ub, offsets, output_dir)
+
+    make_segmenation_layer(lines, 1, streamline_tracts, lb, ub)
 
     log_resource_usage("After Formatting Annotations")
 
