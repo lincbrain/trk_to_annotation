@@ -5,7 +5,7 @@ from utils import make_segmenation_layer, load_from_file, log_resource_usage, sp
 import numpy as np
 
 
-def main(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../assets/sub-I58_sample-hemi_desc-CSD_tractography.smalltest.trk'), output_dir: str = './precomputed_annotations_new', grid_densities: list[int] = [1, 2]):
+def main(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../assets/sub-I58_sample-hemi_desc-CSD_tractography.smalltest.trk'), output_dir: str = './precomputed_annotations_new', grid_densities: list[int] = [1, 2, 4, 8, 16]):
     """
     Parameters
     ----------
@@ -51,6 +51,4 @@ def main(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 
 if __name__ == '__main__':
-    # main('/space/aspasia/2/users/linc/000049/derivatives/dwi/sub-I74/sub-I74_sample-hemi_desc-CSD_tractography.trk',
-    #     grid_densities = [1, 2, 4, 8, 16, 32])
     main()
