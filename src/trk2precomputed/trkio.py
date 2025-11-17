@@ -675,20 +675,109 @@ class TrkReader(Sequence):
             return self.header.n_count
         return len(self.offsets) - 1
 
-    def __getitem__(self, index: int | slice) -> Tractogram:
+    def load_per_streamline(
+        self, index: int | slice = slice(None)
+    ) -> np.ndarray:
         """
-        Get a streamline or a set of streamlines by index or slice.
+        Load per-streamline data for a streamline or a set of streamlines
+        by index or slice.
 
         Parameters
         ----------
         index : int | slice
-            The index or slice of the streamline(s) to retrieve.
+            The index or slice of the streamline(s) to load.
+
+        Returns
+        -------
+        np.ndarray
+            The per-streamline data for the requested streamline(s).
+        """
+        header = self.header
+        order = self.order
+        offsets = self.offsets
+
+        nb_streamlines = len(offsets) - 1
+        nb_props = header.n_properties
+        property_names = header.property_names
+        prop_keys = ['prop_' + name for name in property_names]
+        perline_dtype = per_streamline_dtype(property_names)
+
+        # --- preproc streamline indices -------------------------------
+        if isinstance(index, slice):
+            if index.step not in (None, 1):
+                raise ValueError('Slice step other than 1 is not supported.')
+            index_start = 0 if index.start is None else index.start
+            index_stop = nb_streamlines if index.stop is None else index.stop
+        else:
+            index_start = index
+            index_stop = index + 1
+
+        if index_start < 0:
+            index_start += nb_streamlines
+        if index_stop < 0:
+            index_stop += nb_streamlines
+        index_stop = min(index_stop, nb_streamlines)
+        # --------------------------------------------------------------
+
+        # --- allocate arrays ------------------------------------------
+        nb_streamlines = index_stop - index_start
+        per_streamline = np.zeros([nb_streamlines], dtype=perline_dtype)
+        # --------------------------------------------------------------
+
+        # --- load data ------------------------------------------------
+        with self.smart_open() as file:
+            file.seek(offsets[index_start], Whence.CURRENT)
+
+            point_offset = 0
+            for i in range(index_start, index_stop):
+                j = i - index_start
+
+                # read number of points in this streamline
+                nb_points = smart_read(file, f'{order}i4')
+
+                per_streamline[j]['id'] = i
+                per_streamline[j]['length'] = nb_points
+                per_streamline[j]['offset'] = point_offset
+
+                # skip per-point data
+                point_size = (3 + len(header.scalar_names)) * nb_points * 4
+                file.seek(point_size, Whence.CURRENT)
+
+                # read per-streamline properties
+                if nb_props:
+                    prop_values = smart_read(file, f'{order}f4', nb_props)
+                    per_streamline[j][prop_keys] = prop_values
+
+                point_offset += nb_points
+        # --------------------------------------------------------------
+
+        return per_streamline
+
+    def load(
+        self,
+        index: int | slice = slice(None),
+        load_points: bool = True
+    ) -> Tractogram:
+        """
+        Load a streamline or a set of streamlines by index or slice.
+
+        Parameters
+        ----------
+        index : int | slice
+            The index or slice of the streamline(s) to load.
+        load_points : bool, default=True
+            Whether to load the per-point data.
+            If False, only per-streamline data will be loaded.
 
         Returns
         -------
         Tractogram
             The requested streamline(s) as a Tractogram object.
         """
+        if not load_points:
+            per_streamline = self.load_per_streamline(index)
+            return Tractogram(per_streamline, None)
+
         header = self.header
         order = self.order
         offsets = self.offsets
@@ -773,3 +862,19 @@ class TrkReader(Sequence):
             point_start = point_stop
 
         return Tractogram(per_streamline, per_point)
+
+    def __getitem__(self, index: int | slice) -> Tractogram:
+        """
+        Get a streamline or a set of streamlines by index or slice.
+
+        Parameters
+        ----------
+        index : int | slice
+            The index or slice of the streamline(s) to retrieve.
+
+        Returns
+        -------
+        Tractogram
+            The requested streamline(s) as a Tractogram object.
+        """
+        return self.load(index)
