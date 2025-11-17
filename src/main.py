@@ -5,7 +5,7 @@ from utils import make_segmenation_layer, load_from_file, log_resource_usage, sp
 import numpy as np
 
 
-def main(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../assets/sub-I58_sample-hemi_desc-CSD_tractography.smalltest.trk'), output_dir: str = './precomputed_annotations_new', grid_densities: list[int] = [1, 2, 4, 8, 16, 32]):
+def main(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../assets/sub-I58_sample-hemi_desc-CSD_tractography.smalltest.trk'), output_dir: str = './precomputed_annotations_new', grid_densities: list[int] = [1, 2]):
     """
     Parameters
     ----------
@@ -26,38 +26,21 @@ def main(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__))
 
     batchSize = 100000000
 
-    line_start, line_end, line_tracts_pre, line_scalars_pre, scalar_keys, lb, ub, offsets = load_from_file(
-        trk_file)
-    lines, line_tracts, line_scalars, offsets = split_along_grid(
-        line_start[0:batchSize], line_end[0:batchSize], line_tracts_pre[0:batchSize], line_scalars_pre[0:batchSize], lb, ub, offsets, grid_densities)
-    line_start = line_start[batchSize:]
-    line_end = line_end[batchSize:]
-    line_tracts_pre = line_tracts_pre[batchSize:]
-    line_scalars_pre = line_scalars_pre[batchSize:]
-
-    while line_tracts_pre.shape[0] > 0:
+    segments, bbox, offsets = load_from_file(trk_file)
+    split_segments = np.zeros(0, dtype=segments.dtype)
+    while segments.shape[0] > 0:
+        tmp_segments, offsets = split_along_grid(segments[0:batchSize], bbox, [grid_densities[-1]]*3, offsets)
+        split_segments = np.concatenate((split_segments, tmp_segments))
+        segments = segments[batchSize:]
         print(f"batch size: {batchSize}")
-        print(f"remaining: {line_tracts_pre.shape[0]}")
+        print(f"remaining: {segments.shape[0]}")
 
-        lines_batch, line_tracts_batch, line_scalars_batch, offsets = split_along_grid(
-            line_start[0:batchSize], line_end[0:batchSize], line_tracts_pre[0:batchSize], line_scalars_pre[0:batchSize], lb, ub, offsets, grid_densities)
-        line_start = line_start[batchSize:]
-        line_end = line_end[batchSize:]
-        line_tracts_pre = line_tracts_pre[batchSize:]
-        line_scalars_pre = line_scalars_pre[batchSize:]
-        lines = np.concatenate((lines, lines_batch))
-        line_tracts = np.concatenate(
-            (line_tracts, line_tracts_batch))
-        line_scalars = np.concatenate(
-            (line_scalars, line_scalars_batch))
+    #tract_file = os.path.join(tract_dir, "0.shard")
+    #with open(tract_file, 'wb') as f:
+    #    write_tract_shard(offsets, line_scalars, lines, f)
+    write_spatial_and_info(split_segments, bbox, grid_densities, offsets, output_dir)
 
-    tract_file = os.path.join(tract_dir, "0.shard")
-    with open(tract_file, 'wb') as f:
-        write_tract_shard(offsets, line_scalars, lines, f)
-    write_spatial_and_info(lines, grid_densities,
-                           line_tracts, line_scalars, scalar_keys, lb, ub, offsets, output_dir)
-
-    make_segmenation_layer(lines, 1, line_tracts, lb, ub)
+    make_segmenation_layer(split_segments, 1, bbox)
 
     log_resource_usage("After Formatting Annotations")
 
@@ -68,4 +51,6 @@ def main(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 
 if __name__ == '__main__':
+    # main('/space/aspasia/2/users/linc/000049/derivatives/dwi/sub-I74/sub-I74_sample-hemi_desc-CSD_tractography.trk',
+    #     grid_densities = [1, 2, 4, 8, 16, 32])
     main()

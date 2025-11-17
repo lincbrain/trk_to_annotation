@@ -3,10 +3,31 @@ import numpy as np
 import psutil
 import os
 import json
+import trk2precomputed.trkio 
 
 from sharding import number_of_minishard_bits_tracts
 WORLD_SPACE_DIMENSION = 1
 LIMIT = 50000
+
+POINT3D_DTYPE = np.dtype([
+    ('x', 'f4'),
+    ('y', 'f4'),
+    ('z', 'f4'),
+])
+
+CELL3D_DTYPE = np.dtype([
+    ('i', 'i4'),
+    ('j', 'i4'),
+    ('k', 'i4'),
+])
+
+SEGMENT_DTYPE = (
+    ('streamline', 'i8'),
+    ('start', 'f4', 3),
+    ('end', 'f4', 3),
+    ('orientation', 'f4', 3),
+    ('id', 'i8')
+)
 
 
 np.random.seed(0)
@@ -36,226 +57,164 @@ def log_resource_usage(stage):
     print(f"[{stage}] Memory Usage: {memory.percent}% ({memory.used / (1024**2):.2f} MB used / {memory.total / (1024**2):.2f} MB total)")
 
 
-def load_from_file(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../assets/sub-I58_sample-hemi_desc-CSD_tractography.smalltest.trk')):
-    """Load streamlines from trk file
-    Returns
-    ----------
-    line_start: shape (n, 3) np array of floats
-        stores all the starting points for each annotation
-    line_end: shape (n, 3) np array of floats
-        stores all the end points for each annotation
-    line_tract: shape (n) np array of int
-        stores what tract each annotation is in
-    line_scalars: shape (n, S_n) np array of floats
-        stores scalars for each annotation if scalars were in the tract file
-    scalar_keys: shape (n) np array of strings
-        the keys for each of the scalars that may have been in the tract file
-    lb: shape: (3, 3) np array of floats
-        stores the lower bound of the annotations
-    ub: shape: (3,3) np array of floats
-        stores the upper bound of the annotations
-    offsets: shape: (number_of_tracts + 1) np array of ints
-        the indexs of where every tract starts (and also the value n at the end)
+
+def load_from_file(
+    trk_file: str = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        '../assets/sub-I58_sample-hemi_desc-CSD_tractography.smalltest.trk'
+    )
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    print("Loading streamlines...")
-    tracts = nibabel.streamlines.load(trk_file)
-    all_streamlines = tracts.tractogram.streamlines
-    points = np.hstack(
-        (all_streamlines._data[:, :3], np.ones((all_streamlines._data.shape[0], 1))))
-    points = points @ np.linalg.inv(tracts.affine.T)
-    # get the lower bound and uper bound of all the points in the track file
-    lb = np.array([0, 0, 0])
-    ub = np.max(points, axis=0)[:3]
-    print(f"Total number of streamlines: {len(all_streamlines)}")
-    log_resource_usage("After Loading Streamlines")
-
-    # get every start point for each line in each tract (remove the last point from each tract)
-    line_start = np.delete(points, np.append(
-        all_streamlines._offsets[1:]-1, len(points)-1), axis=0)
-
-    # get every end point for each line in each tract (remove the first point from each tract)
-    line_end = np.delete(
-        points, all_streamlines._offsets, axis=0)
-
-    # get every start point for each line in each tract (remove the last point from each tract)
-    scalars_start = np.delete(all_streamlines._data[:, 3:], np.append(
-        all_streamlines._offsets[1:]-1, len(points)-1), axis=0)
-
-    # get every end point for each line in each tract (remove the first point from each tract)
-    scalars_end = np.delete(
-        all_streamlines._data[:, 3:], all_streamlines._offsets, axis=0)
-
-    # get additional scalars found in the data
-    line_scalars = (scalars_start + scalars_end)/2
-    line_start = line_start[:, :3]
-    line_end = line_end[:, :3]
-
-    # get scalar keys
-    scalar_keys = [key for key in tracts.tractogram.data_per_point.keys()]
-
-    # index to indicate which tract each line corisponds to
-    line_tract = np.concatenate([np.full(
-        all_streamlines._lengths[i]-1, i) for i in range(len(all_streamlines._lengths))])+1
-
-    return line_start, line_end, line_tract, line_scalars, scalar_keys, lb, ub, np.append(
-        all_streamlines._offsets, len(line_start))
-
-
-def split_along_grid(line_start: np.ndarray, line_end: np.ndarray, line_tract: np.ndarray, line_scalars: np.ndarray, lb: np.ndarray, ub: np.ndarray, offsets, grid_densities: list[int]):
-    """Create new lines everytime a line crosses a grid line of the finest grid
-    The idea is to first split everywhere it crosses an x grid line, than y, than z
-    This is done one at a time because if a line crosses more than one grid line we don't need to figure out where it crosses first. This algorithm will figure that out for us
-    The algorithm first creates a bunch of placeholder points working as places to put in memory points if we do find that a line crosses a grid line and needs to be split
-    Then find out what lines cross the grid lines and fill in their corisponding placeholder points
-    Then remove all placeholder points that were untouched
+    Load streamlines from a .trk file.
 
     Parameters
     ----------
-    line_start: shape (n, 3) np array of floats
-        stores all the starting points for each annotation
-    line_end: shape (n, 3) np array of floats
-        stores all the end points for each annotation
-    line_tract: shape (n) np array of int
-        stores what tract each annotation is in
-    line_scalars: shape (n, S_n) np array of floats
-        stores scalars for each annotation if scalars were in the tract file
-    lb: shape: (3, 3) np array of floats
-        stores the lower bound of the annotations
-    ub: shape: (3,3) np array of floats
-        stores the upper bound of the annotations
-    offsets: shape: (number_of_tracts + 1) np array of ints
-        the indexs of where every tract starts (and also the value n at the end)
-    grid_densities: list[int]
-        stores how many splits the grids have on each axis. Each number represents a spacial layer, should be increasing, and each should be a power of two
+    trk_file : str
+        Path to the .trk file.
 
     Returns
+    -------
+    segments : np.ndarray
+        Structured array containing:
+        - streamline : int
+          Streamline ID.
+        - start : (x, y, z)
+          Start point coordinates.
+        - end : (x, y, z)
+          End point coordinates.
+        - scalar_<name> : float
+          Per-segment scalar (average of start and end scalars).
+        - orientation : (dx, dy, dz)
+          Normalized orientation vector.
+    bbox : np.ndarray
+        Bounding box of the volume as [[x_min, y_min, z_min], [x_max, y_max, z_max]].
+    offsets : np.ndarray
+        Indices indicating where each streamline starts and ends.
+    """
+    print("Loading streamlines...")
+    tracts = nibabel.streamlines.load(trk_file)
+    streamlines = tracts.tractogram.streamlines
+
+    # Transform points to voxel space
+    points = np.hstack((streamlines._data[:, :3], np.ones((streamlines._data.shape[0], 1))))
+    points = points @ np.linalg.inv(tracts.affine.T)
+
+    # Bounding box
+    lb = np.array([0, 0, 0])
+    ub = np.max(points, axis=0)[:3]
+    print(f"Total number of streamlines: {len(streamlines)}")
+
+    # Compute start and end points for segments
+    start_idx = np.delete(np.arange(len(points)), np.append(streamlines._offsets[1:] - 1, len(points) - 1))
+    end_idx = np.delete(np.arange(len(points)), streamlines._offsets)
+
+    line_start = points[start_idx, :3]
+    line_end = points[end_idx, :3]
+
+    # Scalars
+    scalars_start = streamlines._data[start_idx, 3:]
+    scalars_end = streamlines._data[end_idx, 3:]
+    line_scalars = (scalars_start + scalars_end) / 2
+
+    # Scalar keys
+    scalar_keys = list(tracts.tractogram.data_per_point.keys())
+    segment_dtype = list(SEGMENT_DTYPE)
+    for name in scalar_keys:
+        segment_dtype.append(("scalar_" + name, "f4"))
+
+    # Streamline IDs
+    line_tract = np.concatenate([np.full(length - 1, i + 1) for i, length in enumerate(streamlines._lengths)])
+
+    # Build segments array
+    segments = np.zeros(len(line_start), dtype=segment_dtype)
+    segments["streamline"] = line_tract
+    segments["start"] = line_start
+    segments["end"] = line_end
+    segments["id"] = np.arange(0, len(line_start))
+
+    # Orientation
+    orient = line_end - line_start
+    length = np.linalg.norm(orient, axis=1, keepdims=True)
+    segments["orientation"] = orient / length.clip(min=1e-15)
+
+    # Scalars
+    for i, name in enumerate(scalar_keys):
+        segments["scalar_" + name] = line_scalars[:, i]
+
+    return segments, np.array([lb, ub]), np.append(streamlines._offsets - np.arange(len(streamlines._offsets)), len(points))
+
+
+
+def split_along_grid(
+    segments: np.ndarray,
+    bbox: np.ndarray,
+    grid: list[int],
+    offsets: np.ndarray):
+    """
+    Insert boundary points into segments that cross grid boundaries.
+
+    Parameters
     ----------
-    lines: shape (m, 2, 3) np array of floats
-        stores the starting point and ending point for each annotation
-    line_tract: shape (m) np array of ints
-        stores what tract each annotation is in
-    line_scalars: shape (m, S_n) np array of floats
-        stores scalars for each annotation if scalars were in the tract file
-    offsets: shape: (number_of_tracts + 1) np array of ints
-        the indexs of where every tract starts (and also the value m at the end)
+    segments : np.ndarray
+        A vector with structured data type containing
+        * streamline : int
+          Streamline ID.
+        * start : (x: float, y: float, z: float)
+          3D coordinates of the starting point of the segment.
+        * end : (x: float, y: float, z: float)
+          3D coordinates of the ending point of the segment.
+        * scalar_<name> : float
+          Per-segment scalar (average of start and end scalars).
+        * orientation : (dx: float, dy: float, dz: float)
+          Orientation vector of the segment (end - start).
+    bbox : np.ndarray
+        The bounding box of the volume, as a 2x3 array:
+        [[x_min, y_min, z_min],
+         [x_max, y_max, z_max]]
+    grid : list[int]
+        The size of the grid in each dimension (x, y, z).
+    offsets : np.ndarray
+        Array of indicies indicating where each streamline starts and ends
+
+    Returns
+    -------
+    np.ndarray
+        The segments with boundary points inserted.
+    np.ndarray
+        The new offsets after boundary points are inserted
     """
 
-    dimensions = ub-lb
-    using_scalars = line_scalars.shape[1] > 0
     offsets_add = np.zeros(offsets.shape)
     # for each axis (x, y, z)
-    for a in range(3):
+    for d, size in enumerate(grid):
+        boundaries = np.linspace(bbox[0, d], bbox[1, d], size + 1)[1:-1]
 
-        # find out where each point is in grid cordinates (both rounded down and not rounded)
-        finest_cells_start = np.floor(
-            ((line_start - lb)/dimensions)*([grid_densities[-1]]*3)).astype(int)
-        finest_cells_end = np.floor(
-            ((line_end-lb)/dimensions)*([grid_densities[-1]]*3)).astype(int)
+        length = np.linalg.norm(segments["start"] - segments["end"], axis=1)
+        orient = segments["orientation"]
+        for boundary in boundaries:
+            repeated_segments = np.repeat(np.expand_dims(segments, axis=1), 2, axis=1)
+            repeated_segments[:, 1]["start"][:, 0] = np.nan
 
-        # for each line split it into two lines where the point connecting them is a nan point that can be easily identified and removed later
-        # these points are placeholder points incase this line travels across the grid and we need to split it into two lines
-        finest_cells_start_not_rounded = np.repeat(np.expand_dims(
-            ((line_start - lb)/dimensions)*([grid_densities[-1]]*3), axis=1), 2, axis=1)
-        finest_cells_start_not_rounded[:, 1] = [np.nan, np.nan, np.nan]
-        finest_cells_end_not_rounded = np.repeat(np.expand_dims(
-            ((line_end-lb)/dimensions)*([grid_densities[-1]]*3), axis=1), 2, axis=1)
-        finest_cells_end_not_rounded[:, 0] = [np.nan, np.nan, np.nan]
+            t = (boundary - segments["start"][:, d]) / segments["orientation"][:, d]
+            mask = (0 < t) & (t < length)
+            t = t[mask]
 
-        # create placeholder tract indexes for these placeholder points. make them -1 so they can be easily identified and removed later
-        line_tract_expand = np.repeat(
-            np.expand_dims(line_tract, axis=1), 2, axis=1)
-        line_tract_expand[:, 1] = -1
+            start = segments["start"][mask]
+            orient = segments["orientation"][mask]
+            inter = start + t[:, None] * orient
+            repeated_segments[:, 0]["end"][mask] = inter
+            repeated_segments[:, 1]["start"][mask] = inter
+            tracts_added_to = np.bincount(
+                repeated_segments[:, 0]["streamline"][mask])
+            offsets_add[:tracts_added_to.shape[0]] += tracts_added_to
+            segments = repeated_segments.reshape((-1))
+            segments = segments[np.invert(np.isnan(segments["start"][:, 0]))]
 
-        if using_scalars:
-            # create placeholder scalar values for these placeholder points. make them nan so they can be easily identified and removed later
-            line_scalars_expand = np.repeat(
-                np.expand_dims(line_scalars, axis=1), 2, axis=1)
-            line_scalars_expand[:, 1] = np.nan
+    offsets = (offsets+np.cumsum(offsets_add)).astype(int)
 
-        # check to see if the line crosses a grid line of the axis we are currently looking at
-        not_same_grid = np.invert(
-            np.equal(finest_cells_start[:, a], finest_cells_end[:, a]))
+    return segments, offsets
 
-        # get all the lines that cross a grid line
-        cross_grid_end = finest_cells_end_not_rounded[not_same_grid]
-        cross_grid_start = finest_cells_start_not_rounded[not_same_grid]
-
-        tracts_added = np.bincount(
-            line_tract_expand[not_same_grid][:, 0]-1)
-        offsets_add[:tracts_added.shape[0]] += tracts_added
-
-        # replace the placeholder tract index with an actual value for each line that crosses a grid line
-        line_tract_expand[not_same_grid] = np.repeat(np.expand_dims(
-            line_tract_expand[not_same_grid][:, 0], axis=1), 2, axis=1)
-
-        if using_scalars:
-            # replace the placeholder scalars with an actual value for each line that crosses a grid line
-            line_scalars_expand[not_same_grid] = np.repeat(np.expand_dims(
-                line_scalars_expand[not_same_grid][:, 0], axis=1), 2, axis=1)
-
-        # get the value of the grid line being crossed (ie line (1.3, 1.5, 1.5) -> (2.5, 1.5, 1.5) will return 2 for a=0)
-        cross_value = np.maximum(
-            finest_cells_end[not_same_grid][:, a], finest_cells_start[not_same_grid][:, a])
-
-        # calculate where the line intersects this grid line and assign the placeholder point this value.
-        dist_start = np.abs(cross_grid_start[:, 0, a] - cross_value)
-        dist_end = np.abs(cross_grid_end[:, 1, a] - cross_value)
-        avg_val_1 = (dist_end*cross_grid_start[:, 0, (a + 1) % 3] +
-                     dist_start*cross_grid_end[:, 1, (a+1) % 3])/(dist_start + dist_end)
-        avg_val_2 = (dist_end*cross_grid_start[:, 0, (a+2) % 3] + dist_start *
-                     cross_grid_end[:, 1, (a+2) % 3])/(dist_start + dist_end)
-        cross_grid_end[:, 0, (a+1) % 3] = avg_val_1
-        cross_grid_end[:, 0, (a+2) % 3] = avg_val_2
-        cross_grid_end[:, 0, a] = cross_value
-        cross_grid_start[:, 1, (a+1) % 3] = avg_val_1
-        cross_grid_start[:, 1, (a+2) % 3] = avg_val_2
-        cross_grid_start[:, 1, a] = cross_value
-        finest_cells_end_not_rounded[not_same_grid] = cross_grid_end
-        finest_cells_start_not_rounded[not_same_grid] = cross_grid_start
-
-        # remove all placeholder points and then add these points to line_tract/start/end
-        line_tract = np.reshape(line_tract_expand, (-1))
-        line_tract = line_tract[line_tract != -1]
-        if using_scalars:
-            line_scalars = np.reshape(
-                line_scalars_expand, (-1, line_scalars.shape[1]))
-            line_scalars = line_scalars[np.invert(
-                np.isnan(line_scalars[:, 0]))]
-        line_end = np.reshape(finest_cells_end_not_rounded, (-1, 3))
-        line_end = line_end[np.invert(
-            np.isnan(line_end[:, 0]))]
-        line_end = (
-            line_end/([grid_densities[-1]]*3))*dimensions + lb
-        line_start = np.reshape(finest_cells_start_not_rounded, (-1, 3))
-        line_start = line_start[np.invert(
-            np.isnan(line_start[:, 0]))]
-        line_start = (
-            line_start/([grid_densities[-1]]*3))*dimensions + lb
-
-    # create a list of lines from start points and end points
-    lines = np.stack((line_start, line_end),
-                     axis=1)/WORLD_SPACE_DIMENSION
-
-    if not using_scalars:
-        line_scalars = np.zeros((line_tract.shape[0], 0))
-
-    return lines, line_tract, line_scalars, (offsets+np.cumsum(offsets_add)).astype(int)
-
-
-# data type for RGB scalars
-rgb_dtype = np.dtype([("r", "<u1"), ("g", "<u1"), ("b", "<u1")])
-
-# data dtype for 3D points
-vec3d_dtype = np.dtype([("x", "<f4"), ("y", "<f4"), ("z", "<f4")])
-
-# data type for the "streamline" or "bundle" relationship
-# (each segment is associated to exactly one streamline or exactly one bundle)
-relationship_dtype = np.dtype([
-    ("nb_objects", "<u4"),      # always 1
-    ("object_id", "<u8"),       # streamline id
-])
-
-
+#NOT IN USE RIGHT NOW
 def write_tract_file(lines: np.ndarray, line_scalars: np.ndarray, offsets, tract_dir: str):
     """For each tract write all the lines in that tract to a file in the same format as discribed by https://github.com/google/neuroglancer/blob/master/src/datasource/precomputed/annotations.md#multiple-annotation-encoding
 
@@ -307,7 +266,7 @@ def write_tract_file(lines: np.ndarray, line_scalars: np.ndarray, offsets, tract
             index_end = offsets[tract_id+1]
         tract_id += 1
 
-
+#NOT IN USE RIGHT NOW
 def write_all_lines(lines: np.ndarray, line_tract: np.ndarray, line_scalars: np.ndarray, id_dir: str):
     """For each line write it to the id file in the format discribed by https://github.com/google/neuroglancer/blob/master/src/datasource/precomputed/annotations.md#single-annotation-encoding
 
@@ -338,256 +297,209 @@ def write_all_lines(lines: np.ndarray, line_tract: np.ndarray, line_scalars: np.
             f.write(np.asarray(line_tract[i], dtype='<u8').tobytes())
 
 
-def write_spatial_and_info(lines: np.ndarray, grid_densities: list[int], line_tracts: np.ndarray, line_scalars: np.ndarray, scalar_keys: np.ndarray, lb: np.ndarray, ub: np.ndarray, offsets, output_dir: str):
+
+def write_spatial_and_info(
+    segments: np.ndarray,
+    bbox: np.ndarray,
+    grid_densities: list[int],
+    offsets: np.ndarray,
+    output_dir: str
+) -> None:
+
     """For each spatial level find which lines belong to which sections
     Then write them to that section's file
 
     Parameters
     ----------
-    lines: shape (m, 2, 3) np array of floats
-        stores the starting point and ending point for each annotation
-    grid_densities: list[int]
-        stores how many splits the grids have on each axis. Each number represents a spacial layer, should be increasing, and each should be a power of two
-    line_tract: shape (m) np array of ints
-        stores what tract each annotation is in
-    line_scalars: shape (m, S_n) np array of floats
-        stores scalars for each annotation if scalars were in the tract file
-    scalar_keys: shape (m) np array of strings
-        the keys for each of the scalars that may have been in the tract file
-    lb: shape: (3, 3) np array of floats
-        stores the lower bound of the annotations
-    ub: shape: (3,3) np array of floats
-        stores the upper bound of the annotations
-    offsets: shape: (number_of_tracts + 1) np array of ints
-        the indexs of where every tract starts (and also the value m at the end)
-    output_dir: string
-        the directory that contains all the files that will be written to including the info file
+    segments : np.ndarray
+        A vector with structured data type containing
+        * streamline : int
+          Streamline ID.
+        * start : (x: float, y: float, z: float)
+          3D coordinates of the starting point of the segment.
+        * end : (x: float, y: float, z: float)
+          3D coordinates of the ending point of the segment.
+        * scalar_<name> : float
+          Per-segment scalar (average of start and end scalars).
+        * orientation : (dx: float, dy: float, dz: float)
+          Orientation vector of the segment (end - start).
+    bbox : np.ndarray
+        The bounding box of the volume, as a 2x3 array:
+        [[x_min, y_min, z_min],
+         [x_max, y_max, z_max]]
+    grid : list[int]
+        The list of densities to split the grid into
+    offsets : np.ndarray
+        Array of indicies indicating where each streamline starts and ends
+    output_dir : string
+        where the output files should be written to
 
     """
-    dtype = np.dtype([
-        ("start", "<f4", 3),
-        ("end", "<f4", 3),
-        ("orient", "<f4", 3),
-        ("scalars", "<f4", line_scalars.shape[1]),
-        ("orient_color", "<u1", 3),
-        # one padding byte because one RGB scalar
-        ("padding", "u1", 1),
-    ])
 
-    grid_shapes = []
-    chunk_sizes = []
-    ids = np.arange(0, len(lines))
-    dimensions = ub - lb
-    tract_level = np.full(line_tracts[-1], -1)
-    rand_values = np.random.rand(line_tracts[-1])
-    for density_index in range(len(grid_densities)):
-        prob = min(
-            LIMIT/(lines.shape[0]/(grid_densities[density_index]**3)), 1.0)
-        tract_level[rand_values <= prob] = density_index
-        rand_values[rand_values <= prob] = 2.0
+   # Collect scalar names
+    scalar_names = [name for name in segments.dtype.names if name.startswith("scalar_")]
 
-    # for each spatial level
-    for density_index in range(len(grid_densities)):
+    grid_shapes, chunk_sizes = [], []
+    dimensions = bbox[1] - bbox[0]
+
+    # Assign tract levels based on probability
+    tract_count = segments["streamline"][-1]
+    tract_level = np.full(tract_count, -1)
+    rand_values = np.random.rand(tract_count)
+
+    for density_index, grid_density in enumerate(grid_densities):
+        prob = min(LIMIT / (segments.shape[0] / (grid_density ** 3)), 1.0)
+        mask = rand_values <= prob
+        tract_level[mask] = density_index
+        rand_values[mask] = 2.0
+
+    # Process each spatial level
+    for density_index, grid_density in enumerate(grid_densities):
         spatial_dir = os.path.join(output_dir, str(density_index))
         os.makedirs(spatial_dir, exist_ok=True)
-        grid_density = grid_densities[density_index]
 
-        selected_tracts = np.array(
-            range(line_tracts[-1]))[tract_level == density_index]
-        
-        lines_tmp = np.zeros((0, 2, 3))
-        ids_tmp = np.zeros((0))
-        tracts_tmp = np.zeros((0))
-        scalars_tmp = np.zeros((0, line_scalars.shape[1]))
+        selected_tracts = np.where(tract_level == density_index)[0]
+        segments_tmp = np.concatenate(
+            [segments[offsets[t]:offsets[t + 1]] for t in selected_tracts],
+            axis=0
+        ) if len(selected_tracts) > 0 else np.zeros(0, dtype=segments.dtype)
 
-        if len(selected_tracts) > 0:
-            lines_list = []
-            ids_list = []
-            tracts_list = []
-            scalars_list = []
-
-            for tract in selected_tracts:
-                offset_start = offsets[tract]
-                offset_end = offsets[tract + 1]
-                lines_list.append(lines[offset_start:offset_end])
-                ids_list.append(ids[offset_start:offset_end])
-                tracts_list.append(line_tracts[offset_start:offset_end])
-                scalars_list.append(
-                    line_scalars[offset_start:offset_end])
-
-            lines_tmp = np.concatenate(lines_list, axis=0)
-            ids_tmp = np.concatenate(ids_list, axis=0)
-            tracts_tmp = np.concatenate(tracts_list, axis=0)
-            scalars_tmp = np.concatenate(scalars_list, axis=0)
-
-
-        # add new chunk size and grid shape to the list to be used in the info file
-        chunk_size = [dim // grid_density for dim in dimensions]
-        chunk_sizes.append(chunk_size)
+        # Grid shape and chunk size
         grid_shape = [grid_density] * 3
+        chunk_size = [dim // grid_density for dim in dimensions]
         grid_shapes.append(grid_shape)
+        chunk_sizes.append(chunk_size)
 
-        # create an empty dictionary that takes a spatial index name and returns three arrays: the lines in the spacial index, the ids of those lines, the tracts those lines belong to, and any additional scalar values for those lines
-        spatial_index = {f"{x}_{y}_{z}": [np.array([]), np.array([]), np.array([]), np.array(
-            [])] for x in range(grid_shape[0]) for y in range(grid_shape[1]) for z in range(grid_shape[2])}
-        cells = np.floor(
-            (((lines_tmp[:, 0] + lines_tmp[:, 1])/2 - lb)/dimensions)*grid_shape).astype(int)
+        # Spatial index dictionary
+        spatial_index = {f"{x}_{y}_{z}": np.array([]) for x in range(grid_shape[0])
+                         for y in range(grid_shape[1]) for z in range(grid_shape[2])}
 
-        # fill in that dictonary
-        for i in range(grid_shape[0]):
-            cells_x = cells[:, 0] == i
-            if np.any(cells_x):
-                lines_x = lines_tmp[cells_x]
-                ids_x = ids_tmp[cells_x]
-                tracts_x = tracts_tmp[cells_x]
-                scalars_x = scalars_tmp[cells_x]
-                cells_x_vals = cells[cells_x]
-                for j in range(grid_shape[1]):
-                    cells_xy = (cells_x_vals[:, 1] == j)
-                    if np.any(cells_xy):
-                        lines_xy = lines_x[cells_xy]
-                        ids_xy = ids_x[cells_xy]
-                        tracts_xy = tracts_x[cells_xy]
-                        scalars_xy = scalars_x[cells_xy]
-                        cells_xy_vals = cells_x_vals[cells_xy]
-                        for k in range(grid_shape[2]):
-                            cells_xyz = (cells_xy_vals[:, 2] == k)
-                            spatial_index[f"{i}_{j}_{k}"] = [
-                                lines_xy[cells_xyz], ids_xy[cells_xyz], tracts_xy[cells_xyz], scalars_xy[cells_xyz]]
+        if len(segments_tmp) > 0:
+            cells = np.floor(
+                (((segments_tmp["start"] + segments_tmp["end"]) / 2 - bbox[0]) / dimensions) * grid_shape
+            ).astype(int)
 
+            # Fill spatial index
+            for i in range(grid_shape[0]):
+                mask_x = cells[:, 0] == i
+                if np.any(mask_x):
+                    seg_x, cells_x = segments_tmp[mask_x], cells[mask_x]
+                    for j in range(grid_shape[1]):
+                        mask_xy = cells_x[:, 1] == j
+                        if np.any(mask_xy):
+                            seg_xy, cells_xy = seg_x[mask_xy], cells_x[mask_xy]
+                            for k in range(grid_shape[2]):
+                                mask_xyz = cells_xy[:, 2] == k
+                                spatial_index[f"{i}_{j}_{k}"] = seg_xy[mask_xyz]
+
+        # Output dtype for Neuroglancer
+        file_output_dtype = np.dtype([
+            ("start", "<f4", 3),
+            ("end", "<f4", 3),
+            ("orientation", "<f4", 3),
+            *[(name, "<f4", 1) for name in scalar_names],
+            ("orient_color", "<u1", 3),
+            ("padding", "u1", 1),
+        ])
+
+        # Write spatial index files
         for cell_key, annotations in spatial_index.items():
-            # randomly decide what tracts should be kept at this spatial level using a uniform distrabution
             cell_file = os.path.join(spatial_dir, cell_key)
-
-            # write lines to file using format discribed by https://github.com/google/neuroglancer/blob/master/src/datasource/precomputed/annotations.md#spatial-index
             with open(cell_file, 'wb') as f:
-                if len(annotations[0]) > 0:
-                    data = np.zeros(
-                        len(annotations[0]), dtype=dtype)
-                    start = annotations[0][:, 0]
-                    end = annotations[0][:, 1]
-                    data["start"] = start
-                    data["end"] = end
-                    data["scalars"] = annotations[3]
-                    orr = end-start
-                    data["orient"] = orr
-                    data["orient_color"] = np.abs(
-                        orr*255)/(np.linalg.norm(orr, axis=1).reshape(-1, 1))
-                    data["padding"] = np.ones(data.shape[0])
+                if len(annotations) > 0:
+                    data = np.zeros(len(annotations), dtype=file_output_dtype)
+                    data["start"], data["end"] = annotations["start"], annotations["end"]
+                    data["orientation"] = annotations["orientation"]
+                    for name in scalar_names:
+                        data[name] = annotations[name]
+                    data["orient_color"] = np.abs(annotations["orientation"] * 255)
+                    data["padding"] = 1
 
-                    np.asarray(data.shape[0], dtype='<u8').tofile(f)
+                    np.asarray(len(data), dtype='<u8').tofile(f)
                     data.tofile(f)
-                    np.asarray(
-                        annotations[1], dtype='<u8').tofile(f)
+                    np.asarray(annotations["streamline"], dtype='<u8').tofile(f)
                 else:
                     f.write(np.asarray(0, dtype='<u8').tobytes())
-            print(
-                f"Saved spatial index for {cell_key} with {len(annotations[0])} annotations on grid density {grid_densities[density_index]}.")
 
-    # Make an ifo file in the format discribed by https://github.com/google/neuroglancer/blob/master/src/datasource/precomputed/annotations.md#info-json-file-format
+            print(f"Saved spatial index for {cell_key} with {len(annotations)} annotations at density {grid_density}.")
+
+    # Info file for Neuroglancer
     info = {
         "@type": "neuroglancer_annotations_v1",
-        "dimensions": {
-            "x": [WORLD_SPACE_DIMENSION, "mm"],
-            "y": [WORLD_SPACE_DIMENSION, "mm"],
-            "z": [WORLD_SPACE_DIMENSION, "mm"]
-        },
-        "lower_bound": lb.tolist(),
-        "upper_bound": ub.tolist(),
+        "dimensions": {axis: [WORLD_SPACE_DIMENSION, "mm"] for axis in ["x", "y", "z"]},
+        "lower_bound": bbox[0].tolist(),
+        "upper_bound": bbox[1].tolist(),
         "annotation_type": "LINE",
         "properties": [
-                        {
-                "id": "orientation_x",
-                "type": "float32",
-                "description": "Color-coding of the segment orientation",
-            },
-            {
-                "id": "orientation_y",
-                "type": "float32",
-                "description": "Color-coding of the segment orientation",
-            },
-            {
-                "id": "orientation_z",
-                "type": "float32",
-                "description": "Color-coding of the segment orientation",
-            },
-            *[
-                {
-                    "id": key,
-                    "type": "float32",
-                }
-                for key in scalar_keys
-            ],
-            {
-                "id": "orientation_color",
-                "type": "rgb",
-                "description": "Color-coding of the segment orientation",
-            }
+            {"id": "orientation_x", "type": "float32", "description": "Segment orientation"},
+            {"id": "orientation_y", "type": "float32", "description": "Segment orientation"},
+            {"id": "orientation_z", "type": "float32", "description": "Segment orientation"},
+            *[{"id": key, "type": "float32"} for key in scalar_names],
+            {"id": "orientation_color", "type": "rgb", "description": "Orientation color"},
         ],
-        "relationships": [
-            {
-                "id": "tract",
-                "key": "./by_tract",
-                "sharding": {
-                    "@type": "neuroglancer_uint64_sharded_v1",
-                    "hash": "identity",                # let’s use identity for now
-                    "preshift_bits": 12,               # chunks_per_minishard = 2**preshift_bits
-                    # single shard = all bits used for minishard
-                    "minishard_bits": number_of_minishard_bits_tracts(len(offsets)-1, 12),
-                    "shard_bits": 0,                   # single shard = all bits used for minishard
-                    "minishard_index_encoding": "raw",  # let’s use raw for now
-                    "data_encoding": "raw",            # let’s use raw for now
-                }
-
+        "relationships": [{
+            "id": "tract",
+            "key": "./by_tract",
+            "sharding": {
+                "@type": "neuroglancer_uint64_sharded_v1",
+                "hash": "identity",
+                "preshift_bits": 12,
+                "minishard_bits": number_of_minishard_bits_tracts(len(offsets) - 1, 12),
+                "shard_bits": 0,
+                "minishard_index_encoding": "raw",
+                "data_encoding": "raw",
             }
-        ],
+        }],
         "by_id": {"key": "./by_id"},
         "spatial": [
-            {
-                "key": f"{i}",
-                "grid_shape": grid_shapes[i],
-                "chunk_size": chunk_sizes[i],
-                "limit": LIMIT
-            } for i in range(len(grid_shapes))
+            {"key": str(i), "grid_shape": grid_shapes[i], "chunk_size": chunk_sizes[i], "limit": LIMIT}
+            for i in range(len(grid_shapes))
         ]
     }
+
     info_file_path = os.path.join(output_dir, 'info')
     with open(info_file_path, 'w') as f:
         json.dump(convert_to_native(info), f)
     print(f"Saved info file at {info_file_path}")
 
 
-def make_segmenation_layer(lines: np.ndarray, resolution: int, line_tracts: np.ndarray, lb: np.ndarray, ub: np.ndarray, chunk_size: int = 128):
+
+def make_segmenation_layer(segments:np.ndarray, resolution: int, bbox: np.ndarray, chunk_size: int = 128):
     """Make a segmentation layer to go with the annotation layer (used for selecting tracts)
     TODO: STILL NEED TO OPTOMZIE
 
     Parameters
     ----------
-    lines: shape (m, 2, 3) np array of floats
-        stores the starting point and ending point for each annotation
+    segments : np.ndarray
+        A vector with structured data type containing
+        * streamline : int
+          Streamline ID.
+        * start : (x: float, y: float, z: float)
+          3D coordinates of the starting point of the segment.
+        * end : (x: float, y: float, z: float)
+          3D coordinates of the ending point of the segment.
+        * scalar_<name> : float
+          Per-segment scalar (average of start and end scalars).
+        * orientation : (dx: float, dy: float, dz: float)
+          Orientation vector of the segment (end - start).
     resolution: int
         width, length, and height of each voxel in mm
-    line_tract: shape (m) np array of ints
-        stores what tract each annotation is in
-    lb: shape: (3, 3) np array of floats
-        stores the lower bound of the annotations
-    ub: shape: (3,3) np array of floats
-        stores the upper bound of the annotations
-    output_dir: string
-        the directory that contains all the files that will be written to including the info file
-
+    bbox : np.ndarray
+        The bounding box of the volume, as a 2x3 array:
+        [[x_min, y_min, z_min],
+         [x_max, y_max, z_max]]
     """
 
     output_dir = "precomputed_segmentation"
-    dimensions = ub - lb
+    dimensions = bbox[1] - bbox[0]
     d_x = int(dimensions[0]//(resolution*chunk_size) + 1)
     d_y = int(dimensions[1]//(resolution*chunk_size) + 1)
     d_z = int(dimensions[2]//(resolution*chunk_size) + 1)
 
     grid = np.zeros((d_z*chunk_size, d_y*chunk_size, d_x*chunk_size, 1))
-    for i in range(len(lines)):
-        p1 = (lines[i][0] - lb)//resolution
-        grid[int(p1[2]), int(p1[1]), int(p1[0]), 0] = line_tracts[i]
+    for i, segment in enumerate(segments):
+        p1 = (segment["start"] - bbox[0])//resolution
+        grid[int(p1[2]), int(p1[1]), int(p1[0]), 0] = segment["streamline"]
 
     info = {
         "@type": "neuroglancer_multiscale_volume",
@@ -601,7 +513,7 @@ def make_segmenation_layer(lines: np.ndarray, resolution: int, line_tracts: np.n
                 "key": f"{resolution}_{resolution}_{resolution}",
                 "resolution": [resolution*1000000, resolution*1000000, resolution*1000000],
                 "size": [d_x*chunk_size, d_y*chunk_size, d_z*chunk_size],
-                "voxel_offset": lb.tolist()
+                "voxel_offset": bbox[0].tolist()
             }
         ],
         "type": "segmentation"
