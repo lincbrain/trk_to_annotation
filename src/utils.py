@@ -394,6 +394,11 @@ def write_spatial_and_info(lines: np.ndarray, grid_densities: list[int], line_tr
 
         selected_tracts = np.array(
             range(line_tracts[-1]))[tract_level == density_index]
+        
+        lines_tmp = np.zeros((0, 2, 3))
+        ids_tmp = np.zeros((0))
+        tracts_tmp = np.zeros((0))
+        scalars_tmp = np.zeros((0, line_scalars.shape[1]))
 
         if len(selected_tracts) > 0:
             lines_list = []
@@ -410,74 +415,74 @@ def write_spatial_and_info(lines: np.ndarray, grid_densities: list[int], line_tr
                 scalars_list.append(
                     line_scalars[offset_start:offset_end])
 
-            # Concatenate once per array
             lines_tmp = np.concatenate(lines_list, axis=0)
             ids_tmp = np.concatenate(ids_list, axis=0)
             tracts_tmp = np.concatenate(tracts_list, axis=0)
             scalars_tmp = np.concatenate(scalars_list, axis=0)
 
-            # add new chunk size and grid shape to the list to be used in the info file
-            chunk_size = [dim // grid_density for dim in dimensions]
-            chunk_sizes.append(chunk_size)
-            grid_shape = [grid_density] * 3
-            grid_shapes.append(grid_shape)
 
-            # create an empty dictionary that takes a spatial index name and returns three arrays: the lines in the spacial index, the ids of those lines, the tracts those lines belong to, and any additional scalar values for those lines
-            spatial_index = {f"{x}_{y}_{z}": [np.array([]), np.array([]), np.array([]), np.array(
-                [])] for x in range(grid_shape[0]) for y in range(grid_shape[1]) for z in range(grid_shape[2])}
-            cells = np.floor(
-                (((lines_tmp[:, 0] + lines_tmp[:, 1])/2 - lb)/dimensions)*grid_shape).astype(int)
+        # add new chunk size and grid shape to the list to be used in the info file
+        chunk_size = [dim // grid_density for dim in dimensions]
+        chunk_sizes.append(chunk_size)
+        grid_shape = [grid_density] * 3
+        grid_shapes.append(grid_shape)
 
-            # fill in that dictonary
-            for i in range(grid_shape[0]):
-                cells_x = cells[:, 0] == i
-                if np.any(cells_x):
-                    lines_x = lines_tmp[cells_x]
-                    ids_x = ids_tmp[cells_x]
-                    tracts_x = tracts_tmp[cells_x]
-                    scalars_x = scalars_tmp[cells_x]
-                    cells_x_vals = cells[cells_x]
-                    for j in range(grid_shape[1]):
-                        cells_xy = (cells_x_vals[:, 1] == j)
-                        if np.any(cells_xy):
-                            lines_xy = lines_x[cells_xy]
-                            ids_xy = ids_x[cells_xy]
-                            tracts_xy = tracts_x[cells_xy]
-                            scalars_xy = scalars_x[cells_xy]
-                            cells_xy_vals = cells_x_vals[cells_xy]
-                            for k in range(grid_shape[2]):
-                                cells_xyz = (cells_xy_vals[:, 2] == k)
-                                spatial_index[f"{i}_{j}_{k}"] = [
-                                    lines_xy[cells_xyz], ids_xy[cells_xyz], tracts_xy[cells_xyz], scalars_xy[cells_xyz]]
+        # create an empty dictionary that takes a spatial index name and returns three arrays: the lines in the spacial index, the ids of those lines, the tracts those lines belong to, and any additional scalar values for those lines
+        spatial_index = {f"{x}_{y}_{z}": [np.array([]), np.array([]), np.array([]), np.array(
+            [])] for x in range(grid_shape[0]) for y in range(grid_shape[1]) for z in range(grid_shape[2])}
+        cells = np.floor(
+            (((lines_tmp[:, 0] + lines_tmp[:, 1])/2 - lb)/dimensions)*grid_shape).astype(int)
 
-            for cell_key, annotations in spatial_index.items():
-                # randomly decide what tracts should be kept at this spatial level using a uniform distrabution
-                cell_file = os.path.join(spatial_dir, cell_key)
+        # fill in that dictonary
+        for i in range(grid_shape[0]):
+            cells_x = cells[:, 0] == i
+            if np.any(cells_x):
+                lines_x = lines_tmp[cells_x]
+                ids_x = ids_tmp[cells_x]
+                tracts_x = tracts_tmp[cells_x]
+                scalars_x = scalars_tmp[cells_x]
+                cells_x_vals = cells[cells_x]
+                for j in range(grid_shape[1]):
+                    cells_xy = (cells_x_vals[:, 1] == j)
+                    if np.any(cells_xy):
+                        lines_xy = lines_x[cells_xy]
+                        ids_xy = ids_x[cells_xy]
+                        tracts_xy = tracts_x[cells_xy]
+                        scalars_xy = scalars_x[cells_xy]
+                        cells_xy_vals = cells_x_vals[cells_xy]
+                        for k in range(grid_shape[2]):
+                            cells_xyz = (cells_xy_vals[:, 2] == k)
+                            spatial_index[f"{i}_{j}_{k}"] = [
+                                lines_xy[cells_xyz], ids_xy[cells_xyz], tracts_xy[cells_xyz], scalars_xy[cells_xyz]]
 
-                # write lines to file using format discribed by https://github.com/google/neuroglancer/blob/master/src/datasource/precomputed/annotations.md#spatial-index
-                with open(cell_file, 'wb') as f:
-                    if len(annotations[0]) > 0:
-                        data = np.zeros(
-                            len(annotations[0]), dtype=dtype)
-                        start = annotations[0][:, 0]
-                        end = annotations[0][:, 1]
-                        data["start"] = start
-                        data["end"] = end
-                        data["scalars"] = annotations[3]
-                        orr = end-start
-                        data["orient"] = orr
-                        data["orient_color"] = np.abs(
-                            orr*255)/(np.linalg.norm(orr, axis=1).reshape(-1, 1))
-                        data["padding"] = np.ones(data.shape[0])
+        for cell_key, annotations in spatial_index.items():
+            # randomly decide what tracts should be kept at this spatial level using a uniform distrabution
+            cell_file = os.path.join(spatial_dir, cell_key)
 
-                        np.asarray(data.shape[0], dtype='<u8').tofile(f)
-                        data.tofile(f)
-                        np.asarray(
-                            annotations[1], dtype='<u8').tofile(f)
-                    else:
-                        f.write(np.asarray(0, dtype='<u8').tobytes())
-                print(
-                    f"Saved spatial index for {cell_key} with {len(annotations[0])} annotations on grid density {grid_densities[density_index]}.")
+            # write lines to file using format discribed by https://github.com/google/neuroglancer/blob/master/src/datasource/precomputed/annotations.md#spatial-index
+            with open(cell_file, 'wb') as f:
+                if len(annotations[0]) > 0:
+                    data = np.zeros(
+                        len(annotations[0]), dtype=dtype)
+                    start = annotations[0][:, 0]
+                    end = annotations[0][:, 1]
+                    data["start"] = start
+                    data["end"] = end
+                    data["scalars"] = annotations[3]
+                    orr = end-start
+                    data["orient"] = orr
+                    data["orient_color"] = np.abs(
+                        orr*255)/(np.linalg.norm(orr, axis=1).reshape(-1, 1))
+                    data["padding"] = np.ones(data.shape[0])
+
+                    np.asarray(data.shape[0], dtype='<u8').tofile(f)
+                    data.tofile(f)
+                    np.asarray(
+                        annotations[1], dtype='<u8').tofile(f)
+                else:
+                    f.write(np.asarray(0, dtype='<u8').tobytes())
+            print(
+                f"Saved spatial index for {cell_key} with {len(annotations[0])} annotations on grid density {grid_densities[density_index]}.")
 
     # Make an ifo file in the format discribed by https://github.com/google/neuroglancer/blob/master/src/datasource/precomputed/annotations.md#info-json-file-format
     info = {
