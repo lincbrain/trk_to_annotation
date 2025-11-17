@@ -26,38 +26,38 @@ def main(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__))
 
     batchSize = 100000000
 
-    streamline_start, streamline_end, streamline_tracts_pre, streamline_scalars_pre, scalar_keys, lb, ub, offsets = load_from_file(
+    line_start, line_end, line_tracts_pre, line_scalars_pre, scalar_keys, lb, ub, offsets = load_from_file(
         trk_file)
-    lines, streamline_tracts, streamline_scalars, offsets = split_along_grid(
-        streamline_start[0:batchSize], streamline_end[0:batchSize], streamline_tracts_pre[0:batchSize], streamline_scalars_pre[0:batchSize], lb, ub, offsets, grid_densities)
-    streamline_start = streamline_start[batchSize:]
-    streamline_end = streamline_end[batchSize:]
-    streamline_tracts_pre = streamline_tracts_pre[batchSize:]
-    streamline_scalars_pre = streamline_scalars_pre[batchSize:]
+    lines, line_tracts, line_scalars, offsets = split_along_grid(
+        line_start[0:batchSize], line_end[0:batchSize], line_tracts_pre[0:batchSize], line_scalars_pre[0:batchSize], lb, ub, offsets, grid_densities)
+    line_start = line_start[batchSize:]
+    line_end = line_end[batchSize:]
+    line_tracts_pre = line_tracts_pre[batchSize:]
+    line_scalars_pre = line_scalars_pre[batchSize:]
 
-    while streamline_tracts_pre.shape[0] > 0:
+    while line_tracts_pre.shape[0] > 0:
         print(f"batch size: {batchSize}")
-        print(f"remaining: {streamline_tracts_pre.shape[0]}")
+        print(f"remaining: {line_tracts_pre.shape[0]}")
 
-        lines_batch, streamline_tracts_batch, streamline_scalars_batch, offsets = split_along_grid(
-            streamline_start[0:batchSize], streamline_end[0:batchSize], streamline_tracts_pre[0:batchSize], streamline_scalars_pre[0:batchSize], lb, ub, offsets, grid_densities)
-        streamline_start = streamline_start[batchSize:]
-        streamline_end = streamline_end[batchSize:]
-        streamline_tracts_pre = streamline_tracts_pre[batchSize:]
-        streamline_scalars_pre = streamline_scalars_pre[batchSize:]
+        lines_batch, line_tracts_batch, line_scalars_batch, offsets = split_along_grid(
+            line_start[0:batchSize], line_end[0:batchSize], line_tracts_pre[0:batchSize], line_scalars_pre[0:batchSize], lb, ub, offsets, grid_densities)
+        line_start = line_start[batchSize:]
+        line_end = line_end[batchSize:]
+        line_tracts_pre = line_tracts_pre[batchSize:]
+        line_scalars_pre = line_scalars_pre[batchSize:]
         lines = np.concatenate((lines, lines_batch))
-        streamline_tracts = np.concatenate(
-            (streamline_tracts, streamline_tracts_batch))
-        streamline_scalars = np.concatenate(
-            (streamline_scalars, streamline_scalars_batch))
+        line_tracts = np.concatenate(
+            (line_tracts, line_tracts_batch))
+        line_scalars = np.concatenate(
+            (line_scalars, line_scalars_batch))
 
     tract_file = os.path.join(tract_dir, "0.shard")
     with open(tract_file, 'wb') as f:
-        write_tract_shard(offsets, streamline_scalars, lines, f)
+        write_tract_shard(offsets, line_scalars, lines, f)
     write_spatial_and_info(lines, grid_densities,
-                           streamline_tracts, streamline_scalars, scalar_keys, lb, ub, offsets, output_dir)
+                           line_tracts, line_scalars, scalar_keys, lb, ub, offsets, output_dir)
 
-    make_segmenation_layer(lines, 1, streamline_tracts, lb, ub)
+    make_segmenation_layer(lines, 1, line_tracts, lb, ub)
 
     log_resource_usage("After Formatting Annotations")
 
