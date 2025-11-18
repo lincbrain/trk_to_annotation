@@ -1,7 +1,8 @@
 import os
 import time
-from sharding import write_tract_shard
-from utils import make_segmenation_layer, load_from_file, log_resource_usage, split_along_grid, write_all_lines, write_spatial_and_info, write_tract_file
+from id_sharding import write_id_shard
+from tract_sharding import write_tract_shard, write_tract_shard_2
+from utils import make_segmenation_layer, load_from_file, log_resource_usage, split_along_grid, write_spatial_and_info
 import numpy as np
 
 
@@ -26,18 +27,24 @@ def main(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__))
 
     batchSize = 100000000
 
-    segments, bbox, offsets = load_from_file(trk_file)
-    split_segments = np.zeros(0, dtype=segments.dtype)
-    while segments.shape[0] > 0:
-        tmp_segments, offsets = split_along_grid(segments[0:batchSize], bbox, [grid_densities[-1]]*3, offsets)
+    pre_segments, bbox, offsets = load_from_file(trk_file)
+    split_segments = np.zeros(0, dtype=pre_segments.dtype)
+    while pre_segments.shape[0] > 0:
+        tmp_segments, offsets = split_along_grid(pre_segments[0:batchSize], bbox, [grid_densities[-1]]*3, offsets)
         split_segments = np.concatenate((split_segments, tmp_segments))
-        segments = segments[batchSize:]
+        pre_segments = pre_segments[batchSize:]
         print(f"batch size: {batchSize}")
-        print(f"remaining: {segments.shape[0]}")
+        print(f"remaining: {pre_segments.shape[0]}")
+    
 
-    #tract_file = os.path.join(tract_dir, "0.shard")
-    #with open(tract_file, 'wb') as f:
-    #    write_tract_shard(offsets, line_scalars, lines, f)
+    id_file = os.path.join(id_dir, "0.shard")
+    with open(id_file, 'wb') as f:
+        write_id_shard(split_segments, f)
+
+    tract_file = os.path.join(tract_dir, "0.shard")
+    with open(tract_file, 'wb') as f:
+        write_tract_shard(offsets, split_segments, f)
+
     write_spatial_and_info(split_segments, bbox, grid_densities, offsets, output_dir)
 
     make_segmenation_layer(split_segments, 1, bbox)

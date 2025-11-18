@@ -3,23 +3,11 @@ import numpy as np
 import psutil
 import os
 import json
-import trk2precomputed.trkio 
+import tensorstore
 
-from sharding import number_of_minishard_bits_tracts
+from tract_sharding import number_of_minishard_bits_tracts
 WORLD_SPACE_DIMENSION = 1
 LIMIT = 50000
-
-POINT3D_DTYPE = np.dtype([
-    ('x', 'f4'),
-    ('y', 'f4'),
-    ('z', 'f4'),
-])
-
-CELL3D_DTYPE = np.dtype([
-    ('i', 'i4'),
-    ('j', 'i4'),
-    ('k', 'i4'),
-])
 
 SEGMENT_DTYPE = (
     ('streamline', 'i8'),
@@ -28,6 +16,8 @@ SEGMENT_DTYPE = (
     ('orientation', 'f4', 3),
     ('id', 'i8')
 )
+
+
 
 
 np.random.seed(0)
@@ -140,8 +130,10 @@ def load_from_file(
     # Scalars
     for i, name in enumerate(scalar_keys):
         segments["scalar_" + name] = line_scalars[:, i]
+    
+    offsets = np.append(streamlines._offsets - np.arange(len(streamlines._offsets)), len(segments))
 
-    return segments, np.array([lb, ub]), np.append(streamlines._offsets - np.arange(len(streamlines._offsets)), len(points))
+    return segments, np.array([lb, ub]), offsets
 
 
 
@@ -189,11 +181,12 @@ def split_along_grid(
     for d, size in enumerate(grid):
         boundaries = np.linspace(bbox[0, d], bbox[1, d], size + 1)[1:-1]
 
-        length = np.linalg.norm(segments["start"] - segments["end"], axis=1)
         orient = segments["orientation"]
         for boundary in boundaries:
             repeated_segments = np.repeat(np.expand_dims(segments, axis=1), 2, axis=1)
             repeated_segments[:, 1]["start"][:, 0] = np.nan
+
+            length = np.linalg.norm(segments["start"] - segments["end"], axis=1)
 
             t = (boundary - segments["start"][:, d]) / segments["orientation"][:, d]
             mask = (0 < t) & (t < length)
@@ -213,89 +206,6 @@ def split_along_grid(
     offsets = (offsets+np.cumsum(offsets_add)).astype(int)
 
     return segments, offsets
-
-#NOT IN USE RIGHT NOW
-def write_tract_file(lines: np.ndarray, line_scalars: np.ndarray, offsets, tract_dir: str):
-    """For each tract write all the lines in that tract to a file in the same format as discribed by https://github.com/google/neuroglancer/blob/master/src/datasource/precomputed/annotations.md#multiple-annotation-encoding
-
-    Parameters
-    ----------
-    lines: shape (m, 2, 3) np array of floats
-        stores the starting point and ending point for each annotation
-    line_scalars: shape (m, S_n) np array of floats
-        stores scalars for each annotation if scalars were in the tract file
-    offsets: shape: (number_of_tracts + 1) np array of ints
-        the indexs of where every tract starts (and also the value m at the end)
-    tract_dir: string
-        the directory where tract files will be saved to
-    """
-
-    dtype = np.dtype([
-        ("start", "<f4", 3),
-        ("end", "<f4", 3),
-        ("orient", "<f4", 3),
-        ("scalars", "<f4", line_scalars.shape[1]),
-        ("orient_color", "<u1", 3),
-        ("padding", "u1", 1),
-    ])
-
-    ids = np.arange(0, len(lines))
-    tract_id = 1
-    index = 0
-    index_end = offsets[1]
-    while index < lines.shape[0]:
-        data = np.zeros(index_end-index, dtype=dtype)
-        tract_line = lines[index:index_end]
-        data["start"] = tract_line[:, 0]
-        data["end"] = tract_line[:, 1]
-        data["scalars"] = line_scalars[index:index_end]
-        orr = tract_line[:, 1]-tract_line[:, 0]
-        data["orient"] = orr
-        tract_line = None
-        data["orient_color"] = np.abs(
-            orr*255)/(np.linalg.norm(orr, axis=1).reshape(-1, 1))
-        data["padding"] = np.ones(data.shape[0])
-        # data["streamline"]
-        tract_file = os.path.join(tract_dir, str(tract_id))
-        with open(tract_file, 'wb') as f:
-            np.asarray(data.shape[0], dtype='<u8').tofile(f)
-            data.tofile(f)
-            np.asarray(ids[index:index_end], dtype='<u8').tofile(f)
-        index = index_end
-        if index < lines.shape[0]:
-            index_end = offsets[tract_id+1]
-        tract_id += 1
-
-#NOT IN USE RIGHT NOW
-def write_all_lines(lines: np.ndarray, line_tract: np.ndarray, line_scalars: np.ndarray, id_dir: str):
-    """For each line write it to the id file in the format discribed by https://github.com/google/neuroglancer/blob/master/src/datasource/precomputed/annotations.md#single-annotation-encoding
-
-    Parameters
-    ----------
-    lines: shape (m, 2, 3) np array of floats
-        stores the starting point and ending point for each annotation
-    line_tract: shape (m) np array of ints
-        stores what tract each annotation is in
-    line_scalars: shape (m, S_n) np array of floats
-        stores scalars for each annotation if scalars were in the tract file
-    id_dir: string
-        the directory where id files will be saved to
-    """
-    for i in range(len(lines)):
-        id_file = os.path.join(id_dir, str(i))
-        with open(id_file, 'wb') as f:
-            start = lines[i][0]
-            end = lines[i][1]
-            f.write(np.asarray(start, dtype='<f4').tobytes())
-            f.write(np.asarray(end, dtype='<f4').tobytes())
-            f.write(np.asarray(line_scalars[i], dtype='<f4').tobytes())
-            orr = np.abs(end-start)
-            f.write(np.asarray((orr/np.linalg.norm(orr))
-                    * 255, dtype='<u1').tobytes())
-            f.write(np.asarray([0], dtype='<u1').tobytes())
-            f.write(np.asarray([1], dtype='<u4').tobytes())
-            f.write(np.asarray(line_tract[i], dtype='<u8').tobytes())
-
 
 
 def write_spatial_and_info(

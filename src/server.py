@@ -1,7 +1,8 @@
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from RangeHTTPServer import RangeRequestHandler
+from http.server import HTTPServer
 
 
-class CORSRequestHandler(SimpleHTTPRequestHandler):
+class CORSRangeRequestHandler(RangeRequestHandler):
     def end_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
@@ -15,6 +16,6 @@ class CORSRequestHandler(SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = 8000
-    server = HTTPServer(("localhost", port), CORSRequestHandler)
-    print(f"Serving on http://localhost:{port}")
+    server = HTTPServer(("localhost", port), CORSRangeRequestHandler)
+    print(f"Serving with Range support on http://localhost:{port}")
     server.serve_forever()
