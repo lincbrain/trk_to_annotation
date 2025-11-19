@@ -26,6 +26,8 @@ def main(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__))
 
     batchSize = 100000000
 
+    start_time = time.time()
+
     pre_segments, bbox, offsets = load_from_file(trk_file)
     split_segments = np.zeros(0, dtype=pre_segments.dtype)
     print(f"spliting by grid remaining: {pre_segments.shape[0]}")
@@ -35,16 +37,7 @@ def main(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__))
         pre_segments = pre_segments[batchSize:]
         print(f"spliting by grid remaining: {pre_segments.shape[0]}")
 
-    #split_segments = pre_segments
-    
-    print("start")
-    #id_file = os.path.join(id_dir, "0.shard")
-    #with open(id_file, 'wb') as f:
-    start_time = time.time()
     write_id_shard(os.path.abspath(id_dir), split_segments)
-    end_time = time.time()
-    print(f"Script completed in {end_time - start_time:.2f} seconds.")
-    log_resource_usage("Final Resource Utilization")
 
     write_tract_shard(os.path.abspath(tract_dir), split_segments, offsets)
 
@@ -53,6 +46,10 @@ def main(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__))
     make_segmenation_layer(split_segments, 1, bbox)
 
     log_resource_usage("After Formatting Annotations")
+
+    end_time = time.time()
+    print(f"Script completed in {end_time - start_time:.2f} seconds.")
+    log_resource_usage("Final Resource Utilization")
     
 
 
