@@ -1,6 +1,6 @@
 import os
 import time
-from sharding import write_id_shard_2, write_tract_shard_2
+from sharding import write_id_shard, write_tract_shard
 from utils import make_segmenation_layer, load_from_file, log_resource_usage, split_along_grid, write_spatial_and_info
 import numpy as np
 
@@ -41,20 +41,18 @@ def main(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__))
     #id_file = os.path.join(id_dir, "0.shard")
     #with open(id_file, 'wb') as f:
     start_time = time.time()
-    write_id_shard_2(os.path.abspath(id_dir), split_segments)
+    write_id_shard(os.path.abspath(id_dir), split_segments)
     end_time = time.time()
     print(f"Script completed in {end_time - start_time:.2f} seconds.")
     log_resource_usage("Final Resource Utilization")
 
-    write_tract_shard_2(os.path.abspath(tract_dir), split_segments, offsets)
+    write_tract_shard(os.path.abspath(tract_dir), split_segments, offsets)
 
     write_spatial_and_info(split_segments, bbox, grid_densities, offsets, output_dir)
 
     make_segmenation_layer(split_segments, 1, bbox)
 
     log_resource_usage("After Formatting Annotations")
-
-    # Final metrics
     
 
 

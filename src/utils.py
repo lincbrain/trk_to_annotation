@@ -3,7 +3,6 @@ import numpy as np
 import psutil
 import os
 import json
-import tensorstore
 from cloudvolume import CloudVolume
 
 from sharding import number_of_minishard_bits
