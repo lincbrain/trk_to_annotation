@@ -6,8 +6,8 @@ import json
 import tensorstore
 from cloudvolume import CloudVolume
 
-from spacial_sharding import number_of_minishard_bits_spatical, write_spacial_shard_2
-from tract_sharding import number_of_minishard_bits_tracts
+from sharding import number_of_minishard_bits
+
 WORLD_SPACE_DIMENSION = 1
 LIMIT = 50000
 
@@ -18,9 +18,6 @@ SEGMENT_DTYPE = (
     ('orientation', 'f4', 3),
     ('id', 'i8')
 )
-
-
-
 
 np.random.seed(0)
 
@@ -333,7 +330,7 @@ def write_spatial_and_info(
 
                     np.asarray(len(data), dtype='<u8').tofile(f)
                     data.tofile(f)
-                    np.asarray(annotations["streamline"], dtype='<u8').tofile(f)
+                    np.asarray(annotations["id"], dtype='<u8').tofile(f)
                 else:
                     f.write(np.asarray(0, dtype='<u8').tobytes())
 
@@ -360,7 +357,7 @@ def write_spatial_and_info(
                 "@type": "neuroglancer_uint64_sharded_v1",
                 "hash": "identity",
                 "preshift_bits": 12,
-                "minishard_bits": number_of_minishard_bits_tracts(len(offsets) - 1, 12),
+                "minishard_bits": number_of_minishard_bits(len(offsets) - 1, 12),
                 "shard_bits": 0,
                 "minishard_index_encoding": "raw",
                 "data_encoding": "raw",
@@ -371,16 +368,16 @@ def write_spatial_and_info(
                 "@type": "neuroglancer_uint64_sharded_v1",
                 "hash": "identity",
                 "preshift_bits": 12,
-                "minishard_bits": number_of_minishard_bits_tracts(len(segments) - 1, 12),
+                "minishard_bits": number_of_minishard_bits(len(segments), 12),
                 "shard_bits": 0,
                 "minishard_index_encoding": "raw",
                 "data_encoding": "raw",
             }},
         "spatial": [
-            {"key": str(i), "grid_shape": grid_shapes[i], "chunk_size": chunk_sizes[i], "limit": LIMIT#,
+            {"key": str(i), "grid_shape": grid_shapes[i], "chunk_size": chunk_sizes[i], "limit": LIMIT,
             #"sharding": {
             #    "@type": "neuroglancer_uint64_sharded_v1",
-            #    "hash": "murmurhash3_x86_128",
+            #    "hash": "identity",
             #    "preshift_bits": 12,
             #    "minishard_bits": number_of_minishard_bits_spatical(chunk_sizes[i][0]**3, 12),
             #    "shard_bits": 0,
@@ -401,7 +398,6 @@ def write_spatial_and_info(
 
 def make_segmenation_layer(segments:np.ndarray, resolution: int, bbox: np.ndarray, chunk_size: int = 128):
     """Make a segmentation layer to go with the annotation layer (used for selecting tracts)
-    TODO: STILL NEED TO OPTOMZIE
 
     Parameters
     ----------

@@ -1,7 +1,6 @@
 import os
 import time
-from id_sharding import write_id_shard, write_id_shard_2
-from tract_sharding import write_tract_shard, write_tract_shard_2
+from sharding import write_id_shard_2, write_tract_shard_2
 from utils import make_segmenation_layer, load_from_file, log_resource_usage, split_along_grid, write_spatial_and_info
 import numpy as np
 
