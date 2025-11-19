@@ -4,7 +4,9 @@ import psutil
 import os
 import json
 import tensorstore
+from cloudvolume import CloudVolume
 
+from spacial_sharding import number_of_minishard_bits_spatical, write_spacial_shard_2
 from tract_sharding import number_of_minishard_bits_tracts
 WORLD_SPACE_DIMENSION = 1
 LIMIT = 50000
@@ -132,6 +134,8 @@ def load_from_file(
         segments["scalar_" + name] = line_scalars[:, i]
     
     offsets = np.append(streamlines._offsets - np.arange(len(streamlines._offsets)), len(segments))
+
+    print("load_from_file: Done")
 
     return segments, np.array([lb, ub]), offsets
 
@@ -313,6 +317,8 @@ def write_spatial_and_info(
         ])
 
         # Write spatial index files
+        #write_spacial_shard_2(os.path.abspath(spatial_dir), spatial_index, grid_density)
+
         for cell_key, annotations in spatial_index.items():
             cell_file = os.path.join(spatial_dir, cell_key)
             with open(cell_file, 'wb') as f:
@@ -331,7 +337,7 @@ def write_spatial_and_info(
                 else:
                     f.write(np.asarray(0, dtype='<u8').tobytes())
 
-            print(f"Saved spatial index for {cell_key} with {len(annotations)} annotations at density {grid_density}.")
+        print(f"Saved spatial index at density {grid_density}.")
 
     # Info file for Neuroglancer
     info = {
@@ -360,9 +366,28 @@ def write_spatial_and_info(
                 "data_encoding": "raw",
             }
         }],
-        "by_id": {"key": "./by_id"},
+        "by_id": {"key": "./by_id",             
+            "sharding": {
+                "@type": "neuroglancer_uint64_sharded_v1",
+                "hash": "identity",
+                "preshift_bits": 12,
+                "minishard_bits": number_of_minishard_bits_tracts(len(segments) - 1, 12),
+                "shard_bits": 0,
+                "minishard_index_encoding": "raw",
+                "data_encoding": "raw",
+            }},
         "spatial": [
-            {"key": str(i), "grid_shape": grid_shapes[i], "chunk_size": chunk_sizes[i], "limit": LIMIT}
+            {"key": str(i), "grid_shape": grid_shapes[i], "chunk_size": chunk_sizes[i], "limit": LIMIT#,
+            #"sharding": {
+            #    "@type": "neuroglancer_uint64_sharded_v1",
+            #    "hash": "murmurhash3_x86_128",
+            #    "preshift_bits": 12,
+            #    "minishard_bits": number_of_minishard_bits_spatical(chunk_sizes[i][0]**3, 12),
+            #    "shard_bits": 0,
+            #    "minishard_index_encoding": "raw",
+            #    "data_encoding": "raw",
+            #}
+             }
             for i in range(len(grid_shapes))
         ]
     }
@@ -406,43 +431,25 @@ def make_segmenation_layer(segments:np.ndarray, resolution: int, bbox: np.ndarra
     d_y = int(dimensions[1]//(resolution*chunk_size) + 1)
     d_z = int(dimensions[2]//(resolution*chunk_size) + 1)
 
-    grid = np.zeros((d_z*chunk_size, d_y*chunk_size, d_x*chunk_size, 1))
+    grid = np.zeros((d_x*chunk_size, d_y*chunk_size, d_z*chunk_size, 1), dtype="u8")
     for i, segment in enumerate(segments):
         p1 = (segment["start"] - bbox[0])//resolution
-        grid[int(p1[2]), int(p1[1]), int(p1[0]), 0] = segment["streamline"]
+        grid[int(p1[0]), int(p1[1]), int(p1[2]), 0] = segment["streamline"]
 
-    info = {
-        "@type": "neuroglancer_multiscale_volume",
-        "data_type": "uint64",
-        "mesh": "mesh",
-        "num_channels": 1,
-        "scales": [
-            {
-                "chunk_sizes": [[chunk_size, chunk_size, chunk_size]],
-                "encoding": "raw",
-                "key": f"{resolution}_{resolution}_{resolution}",
-                "resolution": [resolution*1000000, resolution*1000000, resolution*1000000],
-                "size": [d_x*chunk_size, d_y*chunk_size, d_z*chunk_size],
-                "voxel_offset": bbox[0].tolist()
-            }
-        ],
-        "type": "segmentation"
-    }
+    info = CloudVolume.create_new_info(
+        num_channels    = 1,
+        layer_type      = 'segmentation',
+        data_type       = 'uint64',
+        encoding        = 'raw', 
+        resolution      = [resolution*1000000, resolution*1000000, resolution*1000000],
+        voxel_offset    = bbox[0].tolist(),
+        mesh            = 'mesh',
+        chunk_size      = [chunk_size, chunk_size, chunk_size],
+        volume_size     = [d_x*chunk_size, d_y*chunk_size, d_z*chunk_size]
+    )
+
     os.makedirs(output_dir, exist_ok=True)
 
-    info_file_path = os.path.join(output_dir, 'info')
-    with open(info_file_path, 'w') as f:
-        json.dump(convert_to_native(info), f)
-
-    scale_path = os.path.join(
-        output_dir, f"{resolution}_{resolution}_{resolution}")
-    os.makedirs(scale_path, exist_ok=True)
-
-    for i in range(d_x):
-        for j in range(d_y):
-            for k in range(d_z):
-                chunk_path = os.path.join(
-                    scale_path, f"{i*chunk_size}-{(i+1)*chunk_size}_{j*chunk_size}-{(j+1)*chunk_size}_{k*chunk_size}-{(k+1)*chunk_size}")
-                with open(chunk_path, 'wb') as f:
-                    f.write(np.asarray(
-                        grid[k*chunk_size:(k+1)*chunk_size, j*chunk_size:(j+1)*chunk_size, i*chunk_size:(i+1)*chunk_size], dtype='<u8').tobytes())
+    vol = CloudVolume(output_dir, info=info, compress=False)
+    vol.commit_info()
+    vol[0: d_x*chunk_size, 0:d_y*chunk_size, 0: d_z*chunk_size] = grid[:,:,:]
