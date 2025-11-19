@@ -61,8 +61,9 @@ def write_tract_minishard(tract_start, tract_end, offsets, segments, f):
     np.asarray([tract_start+1], dtype='<u8').tofile(f)
     # add 1 to each subsequent id
     np.asarray(np.ones(((tract_end-tract_start)-1)), dtype='<u8').tofile(f)
-    # no start buffer
-    np.asarray(np.zeros(((tract_end-tract_start))), dtype='<u8').tofile(f)
+    # no start buffer except first value
+    np.asarray([length_of_tract_minishard(0, tract_start, offsets, len(scalar_names))], dtype='<u8').tofile(f)
+    np.asarray(np.zeros(((tract_end-tract_start)-1)), dtype='<u8').tofile(f)
     # output size of chunk
     for i in range(tract_start, tract_end):
         np.asarray([length_of_tract_chunk(
