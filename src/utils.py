@@ -1,23 +1,24 @@
-import nibabel
+"""
+Utility functions that could not be easily placed into another catagory 
+
+Author: James Scherick
+License: Apache-2.0
+"""
+
+import logging
+from typing import List, Tuple
 import numpy as np
 import psutil
 import os
 import json
-from cloudvolume import CloudVolume
-
 from sharding import number_of_minishard_bits
 
+
+# ----------------------------
+# Configuration
+# ----------------------------
 WORLD_SPACE_DIMENSION = 1
 LIMIT = 50000
-
-SEGMENT_DTYPE = (
-    ('streamline', 'i8'),
-    ('start', 'f4', 3),
-    ('end', 'f4', 3),
-    ('orientation', 'f4', 3),
-    ('id', 'i8')
-)
-
 np.random.seed(0)
 
 
@@ -35,177 +36,6 @@ def convert_to_native(data):
         return [convert_to_native(v) for v in data]
     else:
         return data
-
-
-def log_resource_usage(stage):
-    """Function to log resource utilization"""
-    memory = psutil.virtual_memory()
-    cpu_percent = psutil.cpu_percent(interval=1)
-    print(f"[{stage}] CPU Usage: {cpu_percent}%")
-    print(f"[{stage}] Memory Usage: {memory.percent}% ({memory.used / (1024**2):.2f} MB used / {memory.total / (1024**2):.2f} MB total)")
-
-
-
-def load_from_file(
-    trk_file: str = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        '../assets/sub-I58_sample-hemi_desc-CSD_tractography.smalltest.trk'
-    )
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Load streamlines from a .trk file.
-
-    Parameters
-    ----------
-    trk_file : str
-        Path to the .trk file.
-
-    Returns
-    -------
-    segments : np.ndarray
-        Structured array containing:
-        - streamline : int
-          Streamline ID.
-        - start : (x, y, z)
-          Start point coordinates.
-        - end : (x, y, z)
-          End point coordinates.
-        - scalar_<name> : float
-          Per-segment scalar (average of start and end scalars).
-        - orientation : (dx, dy, dz)
-          Normalized orientation vector.
-    bbox : np.ndarray
-        Bounding box of the volume as [[x_min, y_min, z_min], [x_max, y_max, z_max]].
-    offsets : np.ndarray
-        Indices indicating where each streamline starts and ends.
-    """
-    print("Loading streamlines...")
-    tracts = nibabel.streamlines.load(trk_file)
-    streamlines = tracts.tractogram.streamlines
-
-    # Transform points to voxel space
-    points = np.hstack((streamlines._data[:, :3], np.ones((streamlines._data.shape[0], 1))))
-    points = points @ np.linalg.inv(tracts.affine.T)
-
-    # Bounding box
-    lb = np.array([0, 0, 0])
-    ub = np.max(points, axis=0)[:3]
-    print(f"Total number of streamlines: {len(streamlines)}")
-
-    # Compute start and end points for segments
-    start_idx = np.delete(np.arange(len(points)), np.append(streamlines._offsets[1:] - 1, len(points) - 1))
-    end_idx = np.delete(np.arange(len(points)), streamlines._offsets)
-
-    line_start = points[start_idx, :3]
-    line_end = points[end_idx, :3]
-
-    # Scalars
-    scalars_start = streamlines._data[start_idx, 3:]
-    scalars_end = streamlines._data[end_idx, 3:]
-    line_scalars = (scalars_start + scalars_end) / 2
-
-    # Scalar keys
-    scalar_keys = list(tracts.tractogram.data_per_point.keys())
-    segment_dtype = list(SEGMENT_DTYPE)
-    for name in scalar_keys:
-        segment_dtype.append(("scalar_" + name, "f4"))
-
-    # Streamline IDs
-    line_tract = np.concatenate([np.full(length - 1, i + 1) for i, length in enumerate(streamlines._lengths)])
-
-    # Build segments array
-    segments = np.zeros(len(line_start), dtype=segment_dtype)
-    segments["streamline"] = line_tract
-    segments["start"] = line_start
-    segments["end"] = line_end
-    segments["id"] = np.arange(0, len(line_start))
-
-    # Orientation
-    orient = line_end - line_start
-    length = np.linalg.norm(orient, axis=1, keepdims=True)
-    segments["orientation"] = orient / length.clip(min=1e-15)
-
-    # Scalars
-    for i, name in enumerate(scalar_keys):
-        segments["scalar_" + name] = line_scalars[:, i]
-    
-    offsets = np.append(streamlines._offsets - np.arange(len(streamlines._offsets)), len(segments))
-
-    print("load_from_file: Done")
-
-    return segments, np.array([lb, ub]), offsets
-
-
-
-def split_along_grid(
-    segments: np.ndarray,
-    bbox: np.ndarray,
-    grid: list[int],
-    offsets: np.ndarray):
-    """
-    Insert boundary points into segments that cross grid boundaries.
-
-    Parameters
-    ----------
-    segments : np.ndarray
-        A vector with structured data type containing
-        * streamline : int
-          Streamline ID.
-        * start : (x: float, y: float, z: float)
-          3D coordinates of the starting point of the segment.
-        * end : (x: float, y: float, z: float)
-          3D coordinates of the ending point of the segment.
-        * scalar_<name> : float
-          Per-segment scalar (average of start and end scalars).
-        * orientation : (dx: float, dy: float, dz: float)
-          Orientation vector of the segment (end - start).
-    bbox : np.ndarray
-        The bounding box of the volume, as a 2x3 array:
-        [[x_min, y_min, z_min],
-         [x_max, y_max, z_max]]
-    grid : list[int]
-        The size of the grid in each dimension (x, y, z).
-    offsets : np.ndarray
-        Array of indicies indicating where each streamline starts and ends
-
-    Returns
-    -------
-    np.ndarray
-        The segments with boundary points inserted.
-    np.ndarray
-        The new offsets after boundary points are inserted
-    """
-
-    offsets_add = np.zeros(offsets.shape)
-    # for each axis (x, y, z)
-    for d, size in enumerate(grid):
-        boundaries = np.linspace(bbox[0, d], bbox[1, d], size + 1)[1:-1]
-
-        orient = segments["orientation"]
-        for boundary in boundaries:
-            repeated_segments = np.repeat(np.expand_dims(segments, axis=1), 2, axis=1)
-            repeated_segments[:, 1]["start"][:, 0] = np.nan
-
-            length = np.linalg.norm(segments["start"] - segments["end"], axis=1)
-
-            t = (boundary - segments["start"][:, d]) / segments["orientation"][:, d]
-            mask = (0 < t) & (t < length)
-            t = t[mask]
-
-            start = segments["start"][mask]
-            orient = segments["orientation"][mask]
-            inter = start + t[:, None] * orient
-            repeated_segments[:, 0]["end"][mask] = inter
-            repeated_segments[:, 1]["start"][mask] = inter
-            tracts_added_to = np.bincount(
-                repeated_segments[:, 0]["streamline"][mask])
-            offsets_add[:tracts_added_to.shape[0]] += tracts_added_to
-            segments = repeated_segments.reshape((-1))
-            segments = segments[np.invert(np.isnan(segments["start"][:, 0]))]
-
-    offsets = (offsets+np.cumsum(offsets_add)).astype(int)
-
-    return segments, offsets
 
 
 def write_spatial_and_info(
@@ -233,6 +63,8 @@ def write_spatial_and_info(
           Per-segment scalar (average of start and end scalars).
         * orientation : (dx: float, dy: float, dz: float)
           Orientation vector of the segment (end - start).
+        * id : int
+          id of segment
     bbox : np.ndarray
         The bounding box of the volume, as a 2x3 array:
         [[x_min, y_min, z_min],
@@ -313,8 +145,6 @@ def write_spatial_and_info(
         ])
 
         # Write spatial index files
-        #write_spacial_shard_2(os.path.abspath(spatial_dir), spatial_index, grid_density)
-
         for cell_key, annotations in spatial_index.items():
             cell_file = os.path.join(spatial_dir, cell_key)
             with open(cell_file, 'wb') as f:
@@ -333,7 +163,7 @@ def write_spatial_and_info(
                 else:
                     f.write(np.asarray(0, dtype='<u8').tobytes())
 
-        print(f"Saved spatial index at density {grid_density}.")
+        logging.info(f"Saved spatial index at density {grid_density}.")
 
     # Info file for Neuroglancer
     info = {
@@ -391,60 +221,4 @@ def write_spatial_and_info(
     info_file_path = os.path.join(output_dir, 'info')
     with open(info_file_path, 'w') as f:
         json.dump(convert_to_native(info), f)
-    print(f"Saved info file at {info_file_path}")
-
-
-
-def make_segmenation_layer(segments:np.ndarray, resolution: int, bbox: np.ndarray, chunk_size: int = 128):
-    """Make a segmentation layer to go with the annotation layer (used for selecting tracts)
-
-    Parameters
-    ----------
-    segments : np.ndarray
-        A vector with structured data type containing
-        * streamline : int
-          Streamline ID.
-        * start : (x: float, y: float, z: float)
-          3D coordinates of the starting point of the segment.
-        * end : (x: float, y: float, z: float)
-          3D coordinates of the ending point of the segment.
-        * scalar_<name> : float
-          Per-segment scalar (average of start and end scalars).
-        * orientation : (dx: float, dy: float, dz: float)
-          Orientation vector of the segment (end - start).
-    resolution: int
-        width, length, and height of each voxel in mm
-    bbox : np.ndarray
-        The bounding box of the volume, as a 2x3 array:
-        [[x_min, y_min, z_min],
-         [x_max, y_max, z_max]]
-    """
-
-    output_dir = "precomputed_segmentation"
-    dimensions = bbox[1] - bbox[0]
-    d_x = int(dimensions[0]//(resolution*chunk_size) + 1)
-    d_y = int(dimensions[1]//(resolution*chunk_size) + 1)
-    d_z = int(dimensions[2]//(resolution*chunk_size) + 1)
-
-    grid = np.zeros((d_x*chunk_size, d_y*chunk_size, d_z*chunk_size, 1), dtype="u8")
-    for i, segment in enumerate(segments):
-        p1 = (segment["start"] - bbox[0])//resolution
-        grid[int(p1[0]), int(p1[1]), int(p1[2]), 0] = segment["streamline"]
-
-    info = CloudVolume.create_new_info(
-        num_channels    = 1,
-        layer_type      = 'segmentation',
-        data_type       = 'uint64',
-        encoding        = 'raw', 
-        resolution      = [resolution*1000000, resolution*1000000, resolution*1000000],
-        voxel_offset    = bbox[0].tolist(),
-        mesh            = 'mesh',
-        chunk_size      = [chunk_size, chunk_size, chunk_size],
-        volume_size     = [d_x*chunk_size, d_y*chunk_size, d_z*chunk_size]
-    )
-
-    os.makedirs(output_dir, exist_ok=True)
-
-    vol = CloudVolume(output_dir, info=info, compress=False)
-    vol.commit_info()
-    vol[0: d_x*chunk_size, 0:d_y*chunk_size, 0: d_z*chunk_size] = grid[:,:,:]
+    logging.info(f"Saved info file at {info_file_path}")

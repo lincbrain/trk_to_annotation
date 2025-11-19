@@ -1,3 +1,14 @@
+"""
+Shard writing utilities for neuroglancer annotations.
+
+This file provides the functions to write tractography segments into
+neuroglancer precomputed annotation shard files. 
+
+Author: James Scherick
+License: Apache-2.0
+"""
+
+import logging
 from math import ceil, log2
 import math
 import numpy as np
@@ -6,7 +17,31 @@ import tensorstore as ts
 def number_of_minishard_bits(num_chunks, preshift_bits):
     return int(ceil(log2(ceil(num_chunks / 2**preshift_bits))))
 
-def write_id_shard(path, segments):
+def write_id_shard(path, segments, batch_size = 10000000):
+    """
+    Parameters
+    ----------
+    path: string
+        path to directory to write shard files
+    segments : np.ndarray
+        A vector with structured data type containing
+        * streamline : int
+          Streamline ID.
+        * start : (x: float, y: float, z: float)
+          3D coordinates of the starting point of the segment.
+        * end : (x: float, y: float, z: float)
+          3D coordinates of the ending point of the segment.
+        * scalar_<name> : float
+          Per-segment scalar (average of start and end scalars).
+        * orientation : (dx: float, dy: float, dz: float)
+          Orientation vector of the segment (end - start).
+        * id : int
+          id of segment
+    batch_size : int
+        amount of chunks to write at once
+
+    """
+
     spec = {
         "driver": "neuroglancer_uint64_sharded",
         "metadata": {
@@ -48,15 +83,40 @@ def write_id_shard(path, segments):
     data["number_tracts"] = 1
     data["tract_id"] = np.reshape(segments["streamline"], (-1, 1))
 
-    print("starting writting to shards")
+    logging.info("starting writting to shards")
     for i in range(len(segments)):
         key = np.array(i, dtype=">u8").tobytes()
         dataset.with_transaction(txn)[key] = data[i].tobytes()
-        if i%10000000 == 0:
-            print(f"ids sharded: {i}")
+        if i%batch_size == 0 and i != 0:
+            logging.info(f"ids sharded: {i}")
+            txn.commit_async().result()
+            txn = ts.Transaction()
     txn.commit_async().result()
 
 def write_tract_shard(path, segments, offsets):
+    """
+    Parameters
+    ----------
+    path: string
+        path to directory to write shard files
+    segments : np.ndarray
+        A vector with structured data type containing
+        * streamline : int
+          Streamline ID.
+        * start : (x: float, y: float, z: float)
+          3D coordinates of the starting point of the segment.
+        * end : (x: float, y: float, z: float)
+          3D coordinates of the ending point of the segment.
+        * scalar_<name> : float
+          Per-segment scalar (average of start and end scalars).
+        * orientation : (dx: float, dy: float, dz: float)
+          Orientation vector of the segment (end - start).
+        * id : int
+          id of segment
+    offsets : np.ndarray
+        Array of indicies indicating where each streamline starts and ends
+    """
+    
     spec = {
         "driver": "neuroglancer_uint64_sharded",
         "metadata": {
@@ -148,7 +208,32 @@ def compressed_morton_code(gridpt, grid_size):
         return code[0]
     return code
 
+#NOTES: Does not work unsure why
 def write_spacial_shard(path, spatial_index, grid_size):
+    """
+    Parameters
+    ----------
+    path : string
+        path to directory to write shard files
+    spacial_index : map (string -> segments)
+        segments : np.ndarray
+            A vector with structured data type containing
+            * streamline : int
+            Streamline ID.
+            * start : (x: float, y: float, z: float)
+            3D coordinates of the starting point of the segment.
+            * end : (x: float, y: float, z: float)
+            3D coordinates of the ending point of the segment.
+            * scalar_<name> : float
+            Per-segment scalar (average of start and end scalars).
+            * orientation : (dx: float, dy: float, dz: float)
+            Orientation vector of the segment (end - start).
+            * id : int
+            id of segment
+    grid_size : int
+        dimensions of grid on all axies
+    """
+    
     spec = {
         "driver": "neuroglancer_uint64_sharded",
         "metadata": {
@@ -192,7 +277,7 @@ def write_spacial_shard(path, spatial_index, grid_size):
                 data.tobytes() +
                 np.array(annotations["id"], dtype="<u8").tobytes()
             )
-            print(grid_size)
+            logging.info(grid_size)
         index = np.array(cell_key.split("_"), dtype=int)
         mortoncode = compressed_morton_code(index, np.array([grid_size]*3, dtype=np.int32))
         chunk_key = np.ascontiguousarray(mortoncode, dtype=">u8").tobytes()

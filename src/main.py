@@ -1,22 +1,41 @@
+"""
+Main entry point for converting trk files to neuroglancer precomputed annotations
+
+Author: James Scherick
+License: Apache-2.0
+"""
+
+import argparse
+import logging
 import os
 import time
+from preprocessing import load_from_file, split_along_grid_batched
+from segmentation import make_segmenation_layer
 from sharding import write_id_shard, write_tract_shard
-from utils import make_segmenation_layer, load_from_file, log_resource_usage, split_along_grid, write_spatial_and_info
+from utils import write_spatial_and_info
 import numpy as np
+from typing import List, Tuple
 
 
-def main(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../assets/sub-I58_sample-hemi_desc-CSD_tractography.smalltest.trk'), output_dir: str = './precomputed_annotations_new', grid_densities: list[int] = [1, 2, 4, 8, 16]):
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+
+
+def main(trk_file: str, output_dir: str, segmentation_output_dir: str, grid_densities: list[int]):
     """
     Parameters
     ----------
     trk_file: string
         path to the trk file
     output_dir: string
-        path to the output directory
+        path to the precomputed annotations directory
+    segmentation_output_dir: string
+        path to the precomputed segmentations directory
     grid_densities: list[int]
         stores how many splits the grids have on each axis. Each number represents a spacial layer, should be increasing, and each should be a power of two
     """
-
 
     os.makedirs(output_dir, exist_ok=True)
     id_dir = os.path.join(output_dir, 'by_id')
@@ -24,35 +43,55 @@ def main(trk_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__))
     tract_dir = os.path.join(output_dir, 'by_tract')
     os.makedirs(tract_dir, exist_ok=True)
 
-    batchSize = 100000000
-
     start_time = time.time()
 
     pre_segments, bbox, offsets = load_from_file(trk_file)
-    split_segments = np.zeros(0, dtype=pre_segments.dtype)
-    print(f"spliting by grid remaining: {pre_segments.shape[0]}")
-    while pre_segments.shape[0] > 0:
-        tmp_segments, offsets = split_along_grid(pre_segments[0:batchSize], bbox, [grid_densities[-1]]*3, offsets)
-        split_segments = np.concatenate((split_segments, tmp_segments))
-        pre_segments = pre_segments[batchSize:]
-        print(f"spliting by grid remaining: {pre_segments.shape[0]}")
+    split_segments, offsets = split_along_grid_batched(pre_segments, bbox, [grid_densities[-1]]*3, offsets)
 
+    logging.info("Writing ID shards...")
     write_id_shard(os.path.abspath(id_dir), split_segments)
 
+    logging.info("Writing tract shards...")
     write_tract_shard(os.path.abspath(tract_dir), split_segments, offsets)
 
+    logging.info("Writing spatial layers and info file...")
     write_spatial_and_info(split_segments, bbox, grid_densities, offsets, output_dir)
 
-    make_segmenation_layer(split_segments, 1, bbox)
-
-    log_resource_usage("After Formatting Annotations")
+    logging.info("Creating segmentation layer...")
+    make_segmenation_layer(split_segments, 1, bbox, segmentation_output_dir)
 
     end_time = time.time()
-    print(f"Script completed in {end_time - start_time:.2f} seconds.")
-    log_resource_usage("Final Resource Utilization")
+    logging.info("Script completed in %.2f seconds.", end_time - start_time)
     
 
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="convert trk files into neuroglancer precomputed annotations"
+    )
+    parser.add_argument(
+        "trk_file",
+        type=str,
+        help="Path to the input .trk file",
+    )
+    parser.add_argument(
+        "--annotation_output_dir",
+        type=str,
+        default="./precomputed_annotations",
+        help="Output directory for precomputed annotation",
+    )
+    parser.add_argument(
+        "--segmentation_output_dir",
+        type=str,
+        default="./precomputed_segmentaitons",
+        help="Output directory for precomputed segmentation",
+    )
+    parser.add_argument(
+        "--grid_densities",
+        type=int,
+        nargs="+",
+        default=[1, 2, 4, 8, 16],
+        help="Grid densities (powers of two in assending order)",
+    )
 
-
-if __name__ == '__main__':
-    main()
+    args = parser.parse_args()
+    main(args.trk_file, args.annotation_output_dir, args.segmentation_output_dir, args.grid_densities)
