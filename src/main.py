@@ -11,10 +11,9 @@ import os
 import time
 from preprocessing import load_from_file, split_along_grid_batched
 from segmentation import make_segmenation_layer
-from sharding import write_id_shard, write_tract_shard
+from tract_sharding import write_tract_shard
+from id_sharding import write_id_shard
 from utils import write_spatial_and_info
-import numpy as np
-from typing import List, Tuple
 
 
 logging.basicConfig(
@@ -49,10 +48,14 @@ def main(trk_file: str, output_dir: str, segmentation_output_dir: str, grid_dens
     split_segments, offsets = split_along_grid_batched(pre_segments, bbox, [grid_densities[-1]]*3, offsets)
 
     logging.info("Writing ID shards...")
-    write_id_shard(os.path.abspath(id_dir), split_segments)
+    id_file = os.path.join(id_dir, "0.shard")
+    with open(id_file, 'wb') as f:
+        write_id_shard(split_segments, f)
 
     logging.info("Writing tract shards...")
-    write_tract_shard(os.path.abspath(tract_dir), split_segments, offsets)
+    tract_file = os.path.join(tract_dir, "0.shard")
+    with open(tract_file, 'wb') as f:
+        write_tract_shard(offsets, split_segments, f)
 
     logging.info("Writing spatial layers and info file...")
     write_spatial_and_info(split_segments, bbox, grid_densities, offsets, output_dir)

@@ -6,9 +6,7 @@ License: Apache-2.0
 """
 
 import logging
-from typing import List, Tuple
 import numpy as np
-import psutil
 import os
 import json
 from sharding import number_of_minishard_bits
