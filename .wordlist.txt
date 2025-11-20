@@ -1,3 +1,9 @@
 linc
 trk
 precomputed
+http
+localhost
+neuroglancer
+dir
+segmentations
+tractography
