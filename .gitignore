@@ -1,2 +1,4 @@
-precomputed_annotations_new/*
+precomputed_annotations/*
+precomputed_segmentation/*
 *.pyc
+*.nii.gz

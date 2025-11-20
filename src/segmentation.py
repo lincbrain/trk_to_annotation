@@ -10,7 +10,7 @@ from cloudvolume import CloudVolume
 import numpy as np
 
 
-def make_segmenation_layer(segments:np.ndarray, resolution: int, bbox: np.ndarray, output_dir: str, chunk_size: int = 128):
+def make_segmenation_layer(segments: np.ndarray, resolution: int, bbox: np.ndarray, output_dir: str, chunk_size: int = 128):
     """Make a segmentation layer to go with the annotation layer (used for selecting tracts)
 
     Parameters
@@ -42,25 +42,28 @@ def make_segmenation_layer(segments:np.ndarray, resolution: int, bbox: np.ndarra
     dimensions = bbox[1] - bbox[0]
     d_xyz = np.asarray(np.ceil(dimensions/(resolution*chunk_size)), dtype="u8")
 
-    grid = np.zeros((d_xyz[0]*chunk_size, d_xyz[1]*chunk_size, d_xyz[2]*chunk_size, 1), dtype="u8")
+    grid = np.zeros((d_xyz[0]*chunk_size, d_xyz[1] *
+                    chunk_size, d_xyz[2]*chunk_size, 1), dtype="u8")
     for i, segment in enumerate(segments):
         p1 = (segment["start"] - bbox[0])//resolution
         grid[int(p1[0]), int(p1[1]), int(p1[2]), 0] = segment["streamline"]
 
     info = CloudVolume.create_new_info(
-        num_channels    = 1,
-        layer_type      = 'segmentation',
-        data_type       = 'uint64',
-        encoding        = 'raw', 
-        resolution      = [resolution*1000000, resolution*1000000, resolution*1000000],
-        voxel_offset    = bbox[0].tolist(),
-        mesh            = 'mesh',
-        chunk_size      = [chunk_size, chunk_size, chunk_size],
-        volume_size     = d_xyz*chunk_size
+        num_channels=1,
+        layer_type='segmentation',
+        data_type='uint64',
+        encoding='raw',
+        resolution=[resolution*1000000,
+                    resolution*1000000, resolution*1000000],
+        voxel_offset=bbox[0].tolist(),
+        mesh='mesh',
+        chunk_size=[chunk_size, chunk_size, chunk_size],
+        volume_size=d_xyz*chunk_size
     )
 
     os.makedirs(output_dir, exist_ok=True)
 
     vol = CloudVolume(output_dir, info=info, compress=False)
     vol.commit_info()
-    vol[0: d_xyz[0]*chunk_size, 0:d_xyz[1]*chunk_size, 0: d_xyz[2]*chunk_size] = grid[:,:,:]
+    vol[0: d_xyz[0]*chunk_size, 0:d_xyz[1]*chunk_size,
+        0: d_xyz[2]*chunk_size] = grid[:, :, :]

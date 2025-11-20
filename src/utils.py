@@ -9,7 +9,9 @@ import logging
 import numpy as np
 import os
 import json
-from sharding import number_of_minishard_bits
+
+from id_sharding import number_of_minishard_bits_ids
+from tract_sharding import number_of_minishard_bits_tracts
 
 
 # ----------------------------
@@ -43,7 +45,6 @@ def write_spatial_and_info(
     offsets: np.ndarray,
     output_dir: str
 ) -> None:
-
     """For each spatial level find which lines belong to which sections
     Then write them to that section's file
 
@@ -77,7 +78,8 @@ def write_spatial_and_info(
     """
 
    # Collect scalar names
-    scalar_names = [name for name in segments.dtype.names if name.startswith("scalar_")]
+    scalar_names = [
+        name for name in segments.dtype.names if name.startswith("scalar_")]
 
     grid_shapes, chunk_sizes = [], []
     dimensions = bbox[1] - bbox[0]
@@ -116,7 +118,8 @@ def write_spatial_and_info(
 
         if len(segments_tmp) > 0:
             cells = np.floor(
-                (((segments_tmp["start"] + segments_tmp["end"]) / 2 - bbox[0]) / dimensions) * grid_shape
+                (((segments_tmp["start"] + segments_tmp["end"]
+                   ) / 2 - bbox[0]) / dimensions) * grid_shape
             ).astype(int)
 
             # Fill spatial index
@@ -152,7 +155,8 @@ def write_spatial_and_info(
                     data["orientation"] = annotations["orientation"]
                     for name in scalar_names:
                         data[name] = annotations[name]
-                    data["orient_color"] = np.abs(annotations["orientation"] * 255)
+                    data["orient_color"] = np.abs(
+                        annotations["orientation"] * 255)
                     data["padding"] = 1
 
                     np.asarray(len(data), dtype='<u8').tofile(f)
@@ -171,11 +175,15 @@ def write_spatial_and_info(
         "upper_bound": bbox[1].tolist(),
         "annotation_type": "LINE",
         "properties": [
-            {"id": "orientation_x", "type": "float32", "description": "Segment orientation"},
-            {"id": "orientation_y", "type": "float32", "description": "Segment orientation"},
-            {"id": "orientation_z", "type": "float32", "description": "Segment orientation"},
+            {"id": "orientation_x", "type": "float32",
+                "description": "Segment orientation"},
+            {"id": "orientation_y", "type": "float32",
+                "description": "Segment orientation"},
+            {"id": "orientation_z", "type": "float32",
+                "description": "Segment orientation"},
             *[{"id": key, "type": "float32"} for key in scalar_names],
-            {"id": "orientation_color", "type": "rgb", "description": "Orientation color"},
+            {"id": "orientation_color", "type": "rgb",
+                "description": "Orientation color"},
         ],
         "relationships": [{
             "id": "tract",
@@ -184,34 +192,25 @@ def write_spatial_and_info(
                 "@type": "neuroglancer_uint64_sharded_v1",
                 "hash": "identity",
                 "preshift_bits": 12,
-                "minishard_bits": number_of_minishard_bits(len(offsets) - 1, 12),
+                "minishard_bits": number_of_minishard_bits_ids(len(offsets) - 1, 12),
                 "shard_bits": 0,
                 "minishard_index_encoding": "raw",
                 "data_encoding": "raw",
             }
         }],
-        "by_id": {"key": "./by_id",             
-            "sharding": {
-                "@type": "neuroglancer_uint64_sharded_v1",
-                "hash": "identity",
-                "preshift_bits": 12,
-                "minishard_bits": number_of_minishard_bits(len(segments), 12),
-                "shard_bits": 0,
-                "minishard_index_encoding": "raw",
-                "data_encoding": "raw",
-            }},
+        "by_id": {"key": "./by_id",
+                  "sharding": {
+                      "@type": "neuroglancer_uint64_sharded_v1",
+                      "hash": "identity",
+                      "preshift_bits": 12,
+                      "minishard_bits": number_of_minishard_bits_tracts(len(segments), 12),
+                      "shard_bits": 0,
+                      "minishard_index_encoding": "raw",
+                      "data_encoding": "raw",
+                  }},
         "spatial": [
-            {"key": str(i), "grid_shape": grid_shapes[i], "chunk_size": chunk_sizes[i], "limit": LIMIT,
-            #"sharding": {
-            #    "@type": "neuroglancer_uint64_sharded_v1",
-            #    "hash": "identity",
-            #    "preshift_bits": 12,
-            #    "minishard_bits": number_of_minishard_bits_spatical(chunk_sizes[i][0]**3, 12),
-            #    "shard_bits": 0,
-            #    "minishard_index_encoding": "raw",
-            #    "data_encoding": "raw",
-            #}
-             }
+            {"key": str(
+                i), "grid_shape": grid_shapes[i], "chunk_size": chunk_sizes[i], "limit": LIMIT}
             for i in range(len(grid_shapes))
         ]
     }

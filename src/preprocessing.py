@@ -54,21 +54,23 @@ def load_from_file(
     offsets : np.ndarray
         Indices indicating where each streamline starts and ends.
     """
-    print("Loading streamlines...")
+    logging.info("Loading streamlines...")
     tracts = nibabel.streamlines.load(trk_file)
     streamlines = tracts.tractogram.streamlines
 
     # Transform points to voxel space
-    points = np.hstack((streamlines._data[:, :3], np.ones((streamlines._data.shape[0], 1))))
+    points = np.hstack(
+        (streamlines._data[:, :3], np.ones((streamlines._data.shape[0], 1))))
     points = points @ np.linalg.inv(tracts.affine.T)
 
     # Bounding box
     lb = np.array([0, 0, 0])
     ub = np.max(points, axis=0)[:3]
-    print(f"Total number of streamlines: {len(streamlines)}")
+    logging.info(f"Total number of streamlines: {len(streamlines)}")
 
     # Compute start and end points for segments
-    start_idx = np.delete(np.arange(len(points)), np.append(streamlines._offsets[1:] - 1, len(points) - 1))
+    start_idx = np.delete(np.arange(len(points)), np.append(
+        streamlines._offsets[1:] - 1, len(points) - 1))
     end_idx = np.delete(np.arange(len(points)), streamlines._offsets)
 
     line_start = points[start_idx, :3]
@@ -86,7 +88,8 @@ def load_from_file(
         segment_dtype.append(("scalar_" + name, "f4"))
 
     # Streamline IDs
-    line_tract = np.concatenate([np.full(length - 1, i + 1) for i, length in enumerate(streamlines._lengths)])
+    line_tract = np.concatenate([np.full(length - 1, i + 1)
+                                for i, length in enumerate(streamlines._lengths)])
 
     # Build segments array
     segments = np.zeros(len(line_start), dtype=segment_dtype)
@@ -103,12 +106,14 @@ def load_from_file(
     # Scalars
     for i, name in enumerate(scalar_keys):
         segments["scalar_" + name] = line_scalars[:, i]
-    
-    offsets = np.append(streamlines._offsets - np.arange(len(streamlines._offsets)), len(segments))
 
-    print("load_from_file: Done")
+    offsets = np.append(streamlines._offsets -
+                        np.arange(len(streamlines._offsets)), len(segments))
+
+    logging.info("load_from_file: Done")
 
     return segments, np.array([lb, ub]), offsets
+
 
 def split_along_grid_batched(
     segments: np.ndarray,
@@ -168,11 +173,12 @@ def split_along_grid_batched(
 
     return split_segments, offsets
 
+
 def split_along_grid(
-    segments: np.ndarray,
-    bbox: np.ndarray,
-    grid: list[int],
-    offsets: np.ndarray):
+        segments: np.ndarray,
+        bbox: np.ndarray,
+        grid: list[int],
+        offsets: np.ndarray):
     """
     Insert boundary points into segments that cross grid boundaries.
 
@@ -214,14 +220,16 @@ def split_along_grid(
     for d, size in enumerate(grid):
         orient = segments["orientation"]
 
-        repeated_segments = np.repeat(np.expand_dims(segments, axis=1), 2, axis=1)
+        repeated_segments = np.repeat(
+            np.expand_dims(segments, axis=1), 2, axis=1)
         repeated_segments[:, 1]["start"][:, 0] = np.nan
 
         cell_start = (segments["start"]-bbox[0])[:, d]//size
         cell_end = (segments["end"]-bbox[0])[:, d]//size
 
         mask = cell_start != cell_end
-        intersection_point = np.maximum.reduce([cell_start[mask], cell_end[mask]])*size
+        intersection_point = np.maximum.reduce(
+            [cell_start[mask], cell_end[mask]])*size
 
         start = segments["start"][mask]
         orient = segments["orientation"][mask]

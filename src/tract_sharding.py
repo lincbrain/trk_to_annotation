@@ -1,104 +1,217 @@
 """
-Shard writing utilities for neuroglancer annotations.
-
-This file provides the functions to write tractography line segments into
-neuroglancer precomputed annotation shard files. 
+This file provides functions to write tractography line segments into
+Neuroglancer precomputed annotation shard files.
 
 Author: James Scherick
 License: Apache-2.0
 """
+
+import logging
 from math import ceil, log2
+from typing import BinaryIO
+
 import numpy as np
 
 
+# ----------------------------
+# Utility Functions
+# ----------------------------
+def length_of_tract_chunk(tract_num: int, offsets: np.ndarray, scalar_size: int) -> int:
+    """
+    Compute the byte length of a single tract chunk.
 
-def length_of_tract_chunk(tract_num, offsets, scalar_size):
-    return (48 + 4*scalar_size)*(offsets[tract_num+1]-offsets[tract_num]) + 8
+    Parameters
+    ----------
+    tract_num : int
+        Index of the tract.
+    offsets : np.ndarray
+        Array of indices indicating tract boundaries.
+    scalar_size : int
+        Number of scalar fields per segment.
+
+    Returns
+    -------
+    int
+        Byte length of the tract chunk.
+    """
+    return (48 + 4 * scalar_size) * (offsets[tract_num + 1] - offsets[tract_num]) + 8
 
 
-def length_of_tract_minishard(tract_start, tract_end, offsets, scalar_size):
-    chunk_indexs = 24*(tract_end - tract_start)
-    chunks = (48 + 4*scalar_size) * \
-        (offsets[tract_end] - offsets[tract_start]) + \
-        8*(tract_end - tract_start)
+def length_of_tract_minishard(
+    tract_start: int, tract_end: int, offsets: np.ndarray, scalar_size: int
+) -> int:
+    """
+    Compute the byte length of a minishard containing multiple tracts.
 
-    return chunk_indexs + chunks
+    Parameters
+    ----------
+    tract_start : int
+        Starting tract index.
+    tract_end : int
+        Ending tract index (exclusive).
+    offsets : np.ndarray
+        Array of indices indicating tract boundaries.
+    scalar_size : int
+        Number of scalar fields per segment.
+
+    Returns
+    -------
+    int
+        Byte length of the minishard.
+    """
+    chunk_indices = 24 * (tract_end - tract_start)
+    chunks = (
+        (48 + 4 * scalar_size) * (offsets[tract_end] - offsets[tract_start])
+        + 8 * (tract_end - tract_start)
+    )
+    return chunk_indices + chunks
 
 
-def number_of_minishard_bits_tracts(num_tracts, preshift_bits):
+def number_of_minishard_bits_tracts(num_tracts: int, preshift_bits: int) -> int:
+    """
+    Compute the number of minishard bits required for tract shards.
+
+    Parameters
+    ----------
+    num_tracts : int
+        Total number of tracts.
+    preshift_bits : int
+        Number of preshift bits used in sharding.
+
+    Returns
+    -------
+    int
+        Number of minishard bits.
+    """
     return int(ceil(log2(ceil(num_tracts / 2**preshift_bits))))
 
 
-def write_tract_minishard(tract_start, tract_end, offsets, segments, f):
-    scalar_names = [name for name in segments.dtype.names if name.startswith("scalar_")]
+# ----------------------------
+# Shard Writers
+# ----------------------------
+def write_tract_minishard(
+    tract_start: int,
+    tract_end: int,
+    offsets: np.ndarray,
+    segments: np.ndarray,
+    f: BinaryIO,
+) -> None:
+    """
+    Write a minishard containing multiple tracts to file.
 
-    dtype = np.dtype([
-        ("start", "<f4", 3),
-        ("end", "<f4", 3),
-        ("orientation", "<f4", 3),
-        *[(name, "<f4", 1) for name in scalar_names],
-        ("orientation_color", "<u1", 3),
-        ("padding", "u1", 1),
-    ])
+    Parameters
+    ----------
+    tract_start : int
+        Starting tract index.
+    tract_end : int
+        Ending tract index (exclusive).
+    offsets : np.ndarray
+        Array of indices indicating tract boundaries.
+    segments : np.ndarray
+        Structured array of tractography segments.
+    f : BinaryIO
+        File handle to write shard data.
+    """
+    scalar_names = [
+        name for name in segments.dtype.names if name.startswith("scalar_")]
+
+    dtype = np.dtype(
+        [
+            ("start", "<f4", 3),
+            ("end", "<f4", 3),
+            ("orientation", "<f4", 3),
+            *[(name, "<f4", 1) for name in scalar_names],
+            ("orientation_color", "<u1", 3),
+            ("padding", "u1", 1),
+        ]
+    )
+
+    logging.info("Writing minishard for tracts %d to %d",
+                 tract_start, tract_end)
 
     for i in range(tract_start, tract_end):
-        index = offsets[i]
-        index_end = offsets[i+1]
-        data = np.zeros(index_end-index, dtype=dtype)
+        index, index_end = offsets[i], offsets[i + 1]
+        data = np.zeros(index_end - index, dtype=dtype)
         masked_segments = segments[index:index_end]
+
         data["start"] = masked_segments["start"]
         data["end"] = masked_segments["end"]
         data["orientation"] = masked_segments["orientation"]
         for name in scalar_names:
             data[name] = masked_segments[name]
-        data["orientation_color"] = np.abs(masked_segments["orientation"] * 255)
-        data["padding"] = np.reshape(np.ones(data.shape[0]), (-1, 1))
-        np.asarray(data.shape[0], dtype='<u8').tofile(f)
+        data["orientation_color"] = np.abs(
+            masked_segments["orientation"] * 255)
+        data["padding"] = np.ones(data.shape[0], dtype="u1")
+
+        np.asarray(data.shape[0], dtype="<u8").tofile(f)
         data.tofile(f)
-        np.asarray(masked_segments["id"], dtype='<u8').tofile(f)
+        np.asarray(masked_segments["id"], dtype="<u8").tofile(f)
 
-    # get id of first tract
-    np.asarray([tract_start+1], dtype='<u8').tofile(f)
-    # add 1 to each subsequent id
-    np.asarray(np.ones(((tract_end-tract_start)-1)), dtype='<u8').tofile(f)
-    # no start buffer except first value
-    np.asarray([length_of_tract_minishard(0, tract_start, offsets, len(scalar_names))], dtype='<u8').tofile(f)
-    np.asarray(np.zeros(((tract_end-tract_start)-1)), dtype='<u8').tofile(f)
-    # output size of chunk
+    # Write tract IDs and offsets
+    np.asarray([tract_start + 1], dtype="<u8").tofile(f)
+    np.asarray(np.ones((tract_end - tract_start - 1)), dtype="<u8").tofile(f)
+    np.asarray(
+        [length_of_tract_minishard(
+            0, tract_start, offsets, len(scalar_names))],
+        dtype="<u8",
+    ).tofile(f)
+    np.asarray(np.zeros((tract_end - tract_start - 1)), dtype="<u8").tofile(f)
+
+    # Write chunk sizes
     for i in range(tract_start, tract_end):
-        np.asarray([length_of_tract_chunk(
-            i, offsets, len(scalar_names))], dtype='<u8').tofile(f)
+        np.asarray(
+            [length_of_tract_chunk(i, offsets, len(scalar_names))], dtype="<u8"
+        ).tofile(f)
 
 
-def write_tract_shard(offsets, segments, f, preshift_bits=12):
-    scalar_names = [name for name in segments.dtype.names if name.startswith("scalar_")]
-    num_tracts = len(offsets)-1
+def write_tract_shard(
+    offsets: np.ndarray, segments: np.ndarray, f: BinaryIO, preshift_bits: int = 12
+) -> None:
+    """
+    Write tract shards to file.
+
+    Parameters
+    ----------
+    offsets : np.ndarray
+        Array of indices indicating tract boundaries.
+    segments : np.ndarray
+        Structured array of tractography segments.
+    f : BinaryIO
+        File handle to write shard data.
+    preshift_bits : int, optional
+        Number of preshift bits used in sharding (default: 12).
+    """
+    scalar_names = [
+        name for name in segments.dtype.names if name.startswith("scalar_")]
+    num_tracts = len(offsets) - 1
     minishard_bits = number_of_minishard_bits_tracts(num_tracts, preshift_bits)
     per_minishard = 2**preshift_bits
-    tract_start = 0
-    tract_end = per_minishard
-    last_size = 0
-    index = 0
+
+    logging.info("Writing tract shard with %d tracts", num_tracts)
+
+    # Write minishard index table
+    tract_start, tract_end = 0, per_minishard
+    last_size, index = 0, 0
     minishard_indexes = np.zeros(((2**minishard_bits) * 2))
+
     while tract_start < num_tracts:
-        if tract_end > num_tracts:
-            tract_end = num_tracts
+        tract_end = min(tract_end, num_tracts)
         last_size += length_of_tract_minishard(
-            tract_start, tract_end, offsets, len(scalar_names))
-        minishard_indexes[index] = last_size-(tract_end-tract_start)*24
+            tract_start, tract_end, offsets, len(scalar_names)
+        )
+        minishard_indexes[index] = last_size - (tract_end - tract_start) * 24
         minishard_indexes[index + 1] = last_size
-        tract_start = tract_end
-        tract_end += per_minishard
-        index = index+2
-    minishard_indexes[index:] = last_size+8
+        tract_start, tract_end = tract_end, tract_end + per_minishard
+        index += 2
+
+    minishard_indexes[index:] = last_size + 8
     np.asarray(minishard_indexes, dtype="<u8").tofile(f)
 
-    tract_start = 0
-    tract_end = per_minishard
-    minishard_indexes = np.zeros(((2**minishard_bits) * 2))
+    # Write minishards
+    tract_start, tract_end = 0, per_minishard
     while tract_start < num_tracts:
-        if tract_end > num_tracts:
-            tract_end = num_tracts
+        tract_end = min(tract_end, num_tracts)
         write_tract_minishard(tract_start, tract_end, offsets, segments, f)
-        tract_start = tract_end
-        tract_end += per_minishard
+        tract_start, tract_end = tract_end, tract_end + per_minishard
+
+    logging.info("Tract shard writing complete.")

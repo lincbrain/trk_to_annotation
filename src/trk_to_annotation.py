@@ -45,7 +45,8 @@ def main(trk_file: str, output_dir: str, segmentation_output_dir: str, grid_dens
     start_time = time.time()
 
     pre_segments, bbox, offsets = load_from_file(trk_file)
-    split_segments, offsets = split_along_grid_batched(pre_segments, bbox, [grid_densities[-1]]*3, offsets)
+    split_segments, offsets = split_along_grid_batched(
+        pre_segments, bbox, [grid_densities[-1]]*3, offsets)
 
     logging.info("Writing ID shards...")
     id_file = os.path.join(id_dir, "0.shard")
@@ -58,14 +59,15 @@ def main(trk_file: str, output_dir: str, segmentation_output_dir: str, grid_dens
         write_tract_shard(offsets, split_segments, f)
 
     logging.info("Writing spatial layers and info file...")
-    write_spatial_and_info(split_segments, bbox, grid_densities, offsets, output_dir)
+    write_spatial_and_info(split_segments, bbox,
+                           grid_densities, offsets, output_dir)
 
     logging.info("Creating segmentation layer...")
     make_segmenation_layer(split_segments, 1, bbox, segmentation_output_dir)
 
     end_time = time.time()
     logging.info("Script completed in %.2f seconds.", end_time - start_time)
-    
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -97,4 +99,5 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    main(args.trk_file, args.annotation_output_dir, args.segmentation_output_dir, args.grid_densities)
+    main(args.trk_file, args.annotation_output_dir,
+         args.segmentation_output_dir, args.grid_densities)
