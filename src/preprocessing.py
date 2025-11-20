@@ -20,10 +20,7 @@ BATCH_SIZE = 100_000_000
 
 
 def load_from_file(
-    trk_file: str = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        '../assets/sub-I58_sample-hemi_desc-CSD_tractography.smalltest.trk'
-    )
+    trk_file: str
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Load streamlines from a .trk file.
