@@ -130,7 +130,7 @@ def write_id_minishard(
     for name in scalar_names:
         data[name] = masked_segments[name]
     data["orientation_color"] = np.abs(masked_segments["orientation"] * 255)
-    data["padding"] = np.ones(data.shape[0], dtype="u1")
+    data["padding"] = np.reshape(np.ones(data.shape[0], dtype="u1"), (-1, 1))
     data["number_tracts"] = 0
     data["tract_id"] = np.reshape(masked_segments["streamline"], (-1, 1))
 
