@@ -1,5 +1,5 @@
 """
-This file provides a function to make a neuroglancer precomputed segmentation layer for precomputed annotations. Seperate segmentations by streamline 
+This file provides a function to make a neuroglancer precomputed segmentation layer for precomputed annotations. Separate segmentations by streamline 
 
 Author: James Scherick
 License: Apache-2.0

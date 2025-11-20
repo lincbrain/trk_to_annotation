@@ -33,7 +33,7 @@ def main(trk_file: str, output_dir: str, segmentation_output_dir: str, grid_dens
     segmentation_output_dir: string
         path to the precomputed segmentations directory
     grid_densities: list[int]
-        stores how many splits the grids have on each axis. Each number represents a spacial layer, should be increasing, and each should be a power of two
+        stores how many splits the grids have on each axis. Each number represents a spatial layer, should be increasing, and each should be a power of two
     """
 
     os.makedirs(output_dir, exist_ok=True)
@@ -95,7 +95,7 @@ if __name__ == "__main__":
         type=int,
         nargs="+",
         default=[1, 2, 4, 8, 16],
-        help="Grid densities (powers of two in assending order)",
+        help="Grid densities (powers of two in ascending order)",
     )
 
     args = parser.parse_args()

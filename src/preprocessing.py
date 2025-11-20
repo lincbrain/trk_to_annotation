@@ -1,5 +1,5 @@
 """
-load trk file and split line segments where the grid boundries are
+load trk file and split line segments where the grid boundaries are
 
 Author: James Scherick
 License: Apache-2.0
@@ -145,7 +145,7 @@ def split_along_grid_batched(
     grid : list[int]
         The size of the grid in each dimension (x, y, z).
     offsets : np.ndarray
-        Array of indicies indicating where each streamline starts and ends
+        Array of indices indicating where each streamline starts and ends
     batch_size : int
         size of segment batches to split
 
@@ -202,7 +202,7 @@ def split_along_grid(
     grid : list[int]
         The size of the grid in each dimension (x, y, z).
     offsets : np.ndarray
-        Array of indicies indicating where each streamline starts and ends
+        Array of indices indicating where each streamline starts and ends
 
     Returns
     -------

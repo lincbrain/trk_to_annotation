@@ -1,5 +1,5 @@
 """
-Utility functions that could not be easily placed into another catagory 
+Utility functions that could not be easily placed into another category 
 
 Author: James Scherick
 License: Apache-2.0
@@ -71,7 +71,7 @@ def write_spatial_and_info(
     grid : list[int]
         The list of densities to split the grid into
     offsets : np.ndarray
-        Array of indicies indicating where each streamline starts and ends
+        Array of indices indicating where each streamline starts and ends
     output_dir : string
         where the output files should be written to
 
