@@ -140,9 +140,9 @@ def write_spatial_and_info(
             ("start", "<f4", 3),
             ("end", "<f4", 3),
             ("orientation", "<f4", 3),
-            *[(name, "<f4", 1) for name in scalar_names],
+            *[(name, "<f4") for name in scalar_names],
             ("orientation_color", "<u1", 3),
-            ("padding", "u1", 1),
+            ("padding", "u1"),
         ])
 
         # Write spatial index files
@@ -157,7 +157,7 @@ def write_spatial_and_info(
                         data[name] = annotations[name]
                     data["orientation_color"] = np.abs(
                         annotations["orientation"] * 255)
-                    data["padding"] = 1
+                    data["padding"] = 0
 
                     np.asarray(len(data), dtype='<u8').tofile(f)
                     data.tofile(f)

@@ -72,11 +72,6 @@ def load_from_file(
     line_start = points[start_idx, :3]
     line_end = points[end_idx, :3]
 
-    # Scalars
-    scalars_start = streamlines._data[start_idx, 3:]
-    scalars_end = streamlines._data[end_idx, 3:]
-    line_scalars = (scalars_start + scalars_end) / 2
-
     # Scalar keys
     scalar_keys = list(tracts.tractogram.data_per_point.keys())
     segment_dtype = list(SEGMENT_DTYPE)
@@ -101,7 +96,8 @@ def load_from_file(
 
     # Scalars
     for i, name in enumerate(scalar_keys):
-        segments["scalar_" + name] = line_scalars[:, i]
+        segments["scalar_" + name] = np.reshape((tracts.tractogram.data_per_point[name]._data[start_idx] +
+                                                 tracts.tractogram.data_per_point[name]._data[end_idx])/2, (-1))
 
     offsets = np.append(streamlines._offsets -
                         np.arange(len(streamlines._offsets)), len(segments))

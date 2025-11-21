@@ -120,9 +120,9 @@ def write_tract_minishard(
             ("start", "<f4", 3),
             ("end", "<f4", 3),
             ("orientation", "<f4", 3),
-            *[(name, "<f4", 1) for name in scalar_names],
+            *[(name, "<f4") for name in scalar_names],
             ("orientation_color", "<u1", 3),
-            ("padding", "u1", 1),
+            ("padding", "u1"),
         ]
     )
 
@@ -138,8 +138,7 @@ def write_tract_minishard(
             data[name] = masked_segments[name]
         data["orientation_color"] = np.abs(
             masked_segments["orientation"] * 255)
-        data["padding"] = np.reshape(
-            np.zeros(data.shape[0], dtype="u1"), (-1, 1))
+        data["padding"] = np.zeros(data.shape[0], dtype="u1")
 
         np.asarray(data.shape[0], dtype="<u8").tofile(f)
         data.tofile(f)
