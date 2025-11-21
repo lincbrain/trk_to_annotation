@@ -12,14 +12,6 @@ from typing import BinaryIO
 
 import numpy as np
 
-# ----------------------------
-# Logging setup
-# ----------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
-
 
 # ----------------------------
 # Utility Functions
@@ -118,8 +110,6 @@ def write_id_minishard(
             ("tract_id", "<u8", 1),
         ]
     )
-
-    logging.info("Writing ID minishard for IDs %d to %d", id_start, id_end)
 
     data = np.zeros(id_end - id_start, dtype=dtype)
     masked_segments = segments[id_start:id_end]

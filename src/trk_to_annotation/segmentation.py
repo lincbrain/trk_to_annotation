@@ -9,6 +9,7 @@ import math
 import os
 from cloudvolume import CloudVolume
 import numpy as np
+import logging
 
 
 def make_segmentation_layer(segments: np.ndarray, resolution: int, bbox: np.ndarray, output_dir: str, chunk_size: int = 128):
@@ -41,13 +42,20 @@ def make_segmentation_layer(segments: np.ndarray, resolution: int, bbox: np.ndar
     """
 
     dimensions = bbox[1] - bbox[0]
-    d_xyz = np.asarray(np.ceil(dimensions/(resolution*chunk_size)), dtype="u8")
+    d_xyz = np.ceil(dimensions / (resolution * chunk_size)).astype("u8")
 
-    grid = np.zeros((d_xyz[0]*chunk_size, d_xyz[1] *
-                    chunk_size, d_xyz[2]*chunk_size, 1), dtype="u8")
-    for segment in segments:
-        p1 = (segment["start"] - bbox[0])//resolution
-        grid[int(p1[0]), int(p1[1]), int(p1[2]), 0] = segment["streamline"]
+    grid_shape = (d_xyz[0]*chunk_size, d_xyz[1] *
+                  chunk_size, d_xyz[2]*chunk_size, 1)
+    grid = np.zeros(grid_shape, dtype="u8")
+    index = 0
+    batch_size = 10_000_000
+
+    while index < len(segments):
+        p1 = ((segments[index:index+batch_size]["start"] -
+              bbox[0]) // resolution).astype(int)
+        grid[p1[:, 0], p1[:, 1], p1[:, 2],
+             0] = segments["streamline"][index:index+batch_size]
+        index += batch_size
 
     info = CloudVolume.create_new_info(
         num_channels=1,

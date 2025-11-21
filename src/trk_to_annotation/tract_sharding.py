@@ -126,9 +126,6 @@ def write_tract_minishard(
         ]
     )
 
-    logging.info("Writing minishard for tracts %d to %d",
-                 tract_start, tract_end)
-
     for i in range(tract_start, tract_end):
         index, index_end = offsets[i], offsets[i + 1]
         data = np.zeros(index_end - index, dtype=dtype)
