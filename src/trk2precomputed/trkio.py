@@ -815,7 +815,7 @@ class TrkReader(Sequence):
         # --- allocate arrays ------------------------------------------
         nb_streamlines = index_stop - index_start
         nb_points = (offset_stop - offset_start)
-        nb_points -= nb_streamlines * (2 + len(property_names) * 4)
+        nb_points -= nb_streamlines * 4 * (1 + len(property_names))
         nb_points //= (3 + len(scalar_names)) * 4
 
         per_streamline = np.zeros([nb_streamlines], dtype=perline_dtype)
