@@ -9,7 +9,6 @@ import math
 import os
 from cloudvolume import CloudVolume
 import numpy as np
-import logging
 
 
 def make_segmentation_layer(segments: np.ndarray, resolution: int, bbox: np.ndarray, output_dir: str, chunk_size: int = 128):

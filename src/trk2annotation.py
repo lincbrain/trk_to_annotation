@@ -94,7 +94,7 @@ if __name__ == "__main__":
         "--grid_densities",
         type=int,
         nargs="+",
-        default=[1, 2, 4, 8, 16],
+        default=[1, 2, 4, 8, 16, 32],
         help="Grid densities (powers of two in ascending order)",
     )
 

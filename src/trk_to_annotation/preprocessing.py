@@ -6,7 +6,6 @@ License: Apache-2.0
 """
 
 import logging
-import os
 from typing import List, Tuple
 import nibabel
 import numpy as np
