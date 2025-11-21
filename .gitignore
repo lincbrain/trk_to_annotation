@@ -1,4 +1,7 @@
-precomputed_annotations/*
-precomputed_segmentation/*
+precomputed_annotations*/*
+precomputed_segmentaitons*/*
 *.pyc
 *.nii.gz
+build/*
+dist/*
+src/trk_to_annotation.egg-info/*

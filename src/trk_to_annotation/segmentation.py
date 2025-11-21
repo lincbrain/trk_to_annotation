@@ -5,6 +5,7 @@ Author: James Scherick
 License: Apache-2.0
 """
 
+import math
 import os
 from cloudvolume import CloudVolume
 import numpy as np
@@ -44,7 +45,7 @@ def make_segmenation_layer(segments: np.ndarray, resolution: int, bbox: np.ndarr
 
     grid = np.zeros((d_xyz[0]*chunk_size, d_xyz[1] *
                     chunk_size, d_xyz[2]*chunk_size, 1), dtype="u8")
-    for i, segment in enumerate(segments):
+    for segment in segments:
         p1 = (segment["start"] - bbox[0])//resolution
         grid[int(p1[0]), int(p1[1]), int(p1[2]), 0] = segment["streamline"]
 
@@ -65,5 +66,6 @@ def make_segmenation_layer(segments: np.ndarray, resolution: int, bbox: np.ndarr
 
     vol = CloudVolume(output_dir, info=info, compress=False)
     vol.commit_info()
-    vol[0: d_xyz[0]*chunk_size, 0:d_xyz[1]*chunk_size,
-        0: d_xyz[2]*chunk_size] = grid[:, :, :]
+    vol[math.floor(bbox[0][0]): math.floor(bbox[0][0]) + d_xyz[0]*chunk_size,
+        math.floor(bbox[0][1]): math.floor(bbox[0][1]) + d_xyz[1]*chunk_size,
+        math.floor(bbox[0][2]): math.floor(bbox[0][2]) + d_xyz[2]*chunk_size] = grid[:, :, :]

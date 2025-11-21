@@ -61,8 +61,8 @@ def load_from_file(
     points = points @ np.linalg.inv(tracts.affine.T)
 
     # Bounding box
-    lb = np.array([0, 0, 0])
-    ub = np.max(points, axis=0)[:3]
+    lb = np.floor(np.min(points, axis=0))[:3]
+    ub = np.ceil(np.max(points, axis=0))[:3]
     logging.info(f"Total number of streamlines: {len(streamlines)}")
 
     # Compute start and end points for segments
@@ -226,7 +226,7 @@ def split_along_grid(
 
         mask = cell_start != cell_end
         intersection_point = np.maximum.reduce(
-            [cell_start[mask], cell_end[mask]])*size
+            [cell_start[mask], cell_end[mask]])*size + bbox[0][d]
 
         start = segments["start"][mask]
         orient = segments["orientation"][mask]
