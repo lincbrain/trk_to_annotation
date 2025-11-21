@@ -10,7 +10,7 @@ import logging
 import os
 import time
 from trk_to_annotation.preprocessing import load_from_file, split_along_grid_batched
-from trk_to_annotation.segmentation import make_segmenation_layer
+from trk_to_annotation.segmentation import make_segmentation_layer
 from trk_to_annotation.tract_sharding import write_tract_shard
 from trk_to_annotation.id_sharding import write_id_shard
 from trk_to_annotation.utils import write_spatial_and_info
@@ -63,7 +63,7 @@ def main(trk_file: str, output_dir: str, segmentation_output_dir: str, grid_dens
                            grid_densities, offsets, output_dir)
 
     logging.info("Creating segmentation layer...")
-    make_segmenation_layer(split_segments, 1, bbox, segmentation_output_dir)
+    make_segmentation_layer(split_segments, 1, bbox, segmentation_output_dir)
 
     end_time = time.time()
     logging.info("Script completed in %.2f seconds.", end_time - start_time)

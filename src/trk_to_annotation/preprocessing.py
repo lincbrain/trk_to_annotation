@@ -1,5 +1,5 @@
 """
-load trk file and split line segments where the grid boundaries are
+Load .trk file and split line segments where the grid boundaries are
 
 Author: James Scherick
 License: Apache-2.0
@@ -21,7 +21,7 @@ BATCH_SIZE = 100_000_000
 
 def load_from_file(
     trk_file: str
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Load streamlines from a .trk file.
 
@@ -142,7 +142,7 @@ def split_along_grid_batched(
         The bounding box of the volume, as a 2x3 array:
         [[x_min, y_min, z_min],
          [x_max, y_max, z_max]]
-    grid : list[int]
+    grid_densities : list[int]
         The size of the grid in each dimension (x, y, z).
     offsets : np.ndarray
         Array of indices indicating where each streamline starts and ends

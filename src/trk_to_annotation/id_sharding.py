@@ -1,6 +1,6 @@
 """
-This file provides functions to write tractography tracks into
-Neuroglancer precomputed annotation relationship shard files.
+This file provides functions to write tractography tracts into
+Neuroglancer precomputed annotation relational shard files.
 
 Author: James Scherick
 License: Apache-2.0
@@ -130,7 +130,7 @@ def write_id_minishard(
     for name in scalar_names:
         data[name] = masked_segments[name]
     data["orientation_color"] = np.abs(masked_segments["orientation"] * 255)
-    data["padding"] = np.reshape(np.ones(data.shape[0], dtype="u1"), (-1, 1))
+    data["padding"] = np.reshape(np.zeros(data.shape[0], dtype="u1"), (-1, 1))
     data["number_tracts"] = 0
     data["tract_id"] = np.reshape(masked_segments["streamline"], (-1, 1))
 
@@ -174,19 +174,19 @@ def write_id_shard(
     # Write minishard index table
     id_start, id_end = 0, per_minishard
     last_size, index = 0, 0
-    minishard_indexes = np.zeros(((2**minishard_bits) * 2))
+    minishard_indices = np.zeros(((2**minishard_bits) * 2))
 
     while id_start < num_ids:
         id_end = min(id_end, num_ids)
         last_size += length_of_id_minishard(id_start,
                                             id_end, len(scalar_names))
-        minishard_indexes[index] = last_size - (id_end - id_start) * 24
-        minishard_indexes[index + 1] = last_size
+        minishard_indices[index] = last_size - (id_end - id_start) * 24
+        minishard_indices[index + 1] = last_size
         id_start, id_end = id_end, id_end + per_minishard
         index += 2
 
-    minishard_indexes[index:] = last_size + 8
-    np.asarray(minishard_indexes, dtype="<u8").tofile(f)
+    minishard_indices[index:] = last_size + 8
+    np.asarray(minishard_indices, dtype="<u8").tofile(f)
 
     # Write minishards
     id_start, id_end = 0, per_minishard

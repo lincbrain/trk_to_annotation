@@ -11,7 +11,7 @@ from cloudvolume import CloudVolume
 import numpy as np
 
 
-def make_segmenation_layer(segments: np.ndarray, resolution: int, bbox: np.ndarray, output_dir: str, chunk_size: int = 128):
+def make_segmentation_layer(segments: np.ndarray, resolution: int, bbox: np.ndarray, output_dir: str, chunk_size: int = 128):
     """Make a segmentation layer to go with the annotation layer (used for selecting tracts)
 
     Parameters
@@ -30,13 +30,13 @@ def make_segmenation_layer(segments: np.ndarray, resolution: int, bbox: np.ndarr
           Orientation vector of the segment (end - start).
         * id : int
           id of segment
-    resolution: int
+    resolution : int
         width, length, and height of each voxel in mm
     bbox : np.ndarray
         The bounding box of the volume, as a 2x3 array:
         [[x_min, y_min, z_min],
          [x_max, y_max, z_max]]
-    output_dir : string
+    output_dir : str
         The folder that will contain the precomputed segmentations
     """
 

@@ -1,5 +1,5 @@
 """
-Utility functions that could not be easily placed into another category 
+Utility functions that do not fit another category 
 
 Author: James Scherick
 License: Apache-2.0
@@ -68,16 +68,16 @@ def write_spatial_and_info(
         The bounding box of the volume, as a 2x3 array:
         [[x_min, y_min, z_min],
          [x_max, y_max, z_max]]
-    grid : list[int]
+    grid_densities : list[int]
         The list of densities to split the grid into
     offsets : np.ndarray
         Array of indices indicating where each streamline starts and ends
-    output_dir : string
-        where the output files should be written to
+    output_dir : str
+        where the output files should be written
 
     """
 
-   # Collect scalar names
+    # Collect scalar names
     scalar_names = [
         name for name in segments.dtype.names if name.startswith("scalar_")]
 
@@ -141,7 +141,7 @@ def write_spatial_and_info(
             ("end", "<f4", 3),
             ("orientation", "<f4", 3),
             *[(name, "<f4", 1) for name in scalar_names],
-            ("orient_color", "<u1", 3),
+            ("orientation_color", "<u1", 3),
             ("padding", "u1", 1),
         ])
 
@@ -155,7 +155,7 @@ def write_spatial_and_info(
                     data["orientation"] = annotations["orientation"]
                     for name in scalar_names:
                         data[name] = annotations[name]
-                    data["orient_color"] = np.abs(
+                    data["orientation_color"] = np.abs(
                         annotations["orientation"] * 255)
                     data["padding"] = 1
 

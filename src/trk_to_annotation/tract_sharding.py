@@ -142,7 +142,7 @@ def write_tract_minishard(
         data["orientation_color"] = np.abs(
             masked_segments["orientation"] * 255)
         data["padding"] = np.reshape(
-            np.ones(data.shape[0], dtype="u1"), (-1, 1))
+            np.zeros(data.shape[0], dtype="u1"), (-1, 1))
 
         np.asarray(data.shape[0], dtype="<u8").tofile(f)
         data.tofile(f)
@@ -193,20 +193,20 @@ def write_tract_shard(
     # Write minishard index table
     tract_start, tract_end = 0, per_minishard
     last_size, index = 0, 0
-    minishard_indexes = np.zeros(((2**minishard_bits) * 2))
+    minishard_indices = np.zeros(((2**minishard_bits) * 2))
 
     while tract_start < num_tracts:
         tract_end = min(tract_end, num_tracts)
         last_size += length_of_tract_minishard(
             tract_start, tract_end, offsets, len(scalar_names)
         )
-        minishard_indexes[index] = last_size - (tract_end - tract_start) * 24
-        minishard_indexes[index + 1] = last_size
+        minishard_indices[index] = last_size - (tract_end - tract_start) * 24
+        minishard_indices[index + 1] = last_size
         tract_start, tract_end = tract_end, tract_end + per_minishard
         index += 2
 
-    minishard_indexes[index:] = last_size + 8
-    np.asarray(minishard_indexes, dtype="<u8").tofile(f)
+    minishard_indices[index:] = last_size + 8
+    np.asarray(minishard_indices, dtype="<u8").tofile(f)
 
     # Write minishards
     tract_start, tract_end = 0, per_minishard
