@@ -11,7 +11,7 @@ from typing import List, Tuple
 import nibabel
 import numpy as np
 
-from datatypes import SEGMENT_DTYPE
+from trk_to_annotation.datatypes import SEGMENT_DTYPE
 
 # ----------------------------
 # Configuration

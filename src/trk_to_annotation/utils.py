@@ -10,8 +10,8 @@ import numpy as np
 import os
 import json
 
-from id_sharding import number_of_minishard_bits_ids
-from tract_sharding import number_of_minishard_bits_tracts
+from trk_to_annotation.id_sharding import number_of_minishard_bits_ids
+from trk_to_annotation.tract_sharding import number_of_minishard_bits_tracts
 
 
 # ----------------------------

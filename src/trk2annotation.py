@@ -9,11 +9,11 @@ import argparse
 import logging
 import os
 import time
-from preprocessing import load_from_file, split_along_grid_batched
-from segmentation import make_segmenation_layer
-from tract_sharding import write_tract_shard
-from id_sharding import write_id_shard
-from utils import write_spatial_and_info
+from trk_to_annotation.preprocessing import load_from_file, split_along_grid_batched
+from trk_to_annotation.segmentation import make_segmenation_layer
+from trk_to_annotation.tract_sharding import write_tract_shard
+from trk_to_annotation.id_sharding import write_id_shard
+from trk_to_annotation.utils import write_spatial_and_info
 
 
 logging.basicConfig(
