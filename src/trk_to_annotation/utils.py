@@ -37,7 +37,7 @@ def convert_to_native(data):
         return data
 
 
-def generate_info_dict(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarray, grid_densities: list[int]) -> dict:
+def generate_info_dict(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarray, grid_densities: list[int], sharding: bool = True) -> dict:
     """generate the info dictionary for Neuroglancer precomputed annotations
 
     Parameters
@@ -64,6 +64,8 @@ def generate_info_dict(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarr
         Array of indices indicating where each streamline starts and ends
     grid_densities : list[int]
         The list of densities to split the grid into
+    sharding : bool
+        Whether to include sharding information in the info dictionary
 
     Returns
     -------
@@ -103,7 +105,7 @@ def generate_info_dict(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarr
                 "shard_bits": 0,
                 "minishard_index_encoding": "raw",
                 "data_encoding": "raw",
-            }
+            } if sharding else None
         }],
         "by_id": {"key": "./by_id",
                   "sharding": {
@@ -114,7 +116,7 @@ def generate_info_dict(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarr
                       "shard_bits": 0,
                       "minishard_index_encoding": "raw",
                       "data_encoding": "raw",
-                  }},
+                  } if sharding else None},
         "spatial": [
             {"key": str(
                 i), "grid_shape": [grid_density]*3, "chunk_size": (dimensions/grid_density).tolist(), "limit": LIMIT}
