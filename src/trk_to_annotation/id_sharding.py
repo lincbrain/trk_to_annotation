@@ -162,20 +162,20 @@ def write_id_shard(
     logging.info("Writing ID shard with %d IDs", num_ids)
 
     # Write minishard index table
-    id_start, id_end = 0, per_minishard
-    last_size, index = 0, 0
-    minishard_indices = np.zeros(((2**minishard_bits) * 2))
+    starts = np.arange(0, num_ids, per_minishard)
+    ends = np.minimum(starts + per_minishard, num_ids)
 
-    while id_start < num_ids:
-        id_end = min(id_end, num_ids)
-        last_size += length_of_id_minishard(id_start,
-                                            id_end, len(scalar_names))
-        minishard_indices[index] = last_size - (id_end - id_start) * 24
-        minishard_indices[index + 1] = last_size
-        id_start, id_end = id_end, id_end + per_minishard
-        index += 2
+    sizes = length_of_id_minishard(starts, ends, len(scalar_names))
 
-    minishard_indices[index:] = last_size + 8
+    last_sizes = np.cumsum(sizes)
+
+    minishard_indices = np.zeros((2**minishard_bits) * 2, dtype=np.int64)
+
+    minishard_indices[0:2*len(starts):2] = last_sizes - (ends - starts) * 24
+    minishard_indices[1:2*len(starts):2] = last_sizes
+
+    minishard_indices[2*len(starts):] = last_sizes[-1] + 8
+
     np.asarray(minishard_indices, dtype="<u8").tofile(f)
 
     # Write minishards

@@ -154,15 +154,16 @@ def split_along_grid_batched(
 
     split_segments = np.zeros(0, dtype=segments.dtype)
     logging.info("Starting grid splitting with %d segments", segments.shape[0])
+    split_segments_list = []
 
     while segments.shape[0] > 0:
         tmp_segments, offsets = split_along_grid(
             segments[:batch_size], bbox, [grid_densities[-1]] * 3, offsets
         )
-        split_segments = np.concatenate((split_segments, tmp_segments))
+        split_segments_list.append(tmp_segments)
         segments = segments[batch_size:]
         logging.info("Remaining segments to split: %d", segments.shape[0])
-
+    split_segments = np.concatenate(split_segments_list, axis=0)
     return split_segments, offsets
 
 

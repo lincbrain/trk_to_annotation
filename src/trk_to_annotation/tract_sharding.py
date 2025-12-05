@@ -187,21 +187,20 @@ def write_tract_shard(
     logging.info("Writing tract shard with %d tracts", num_tracts)
 
     # Write minishard index table
-    tract_start, tract_end = 0, per_minishard
-    last_size, index = 0, 0
-    minishard_indices = np.zeros(((2**minishard_bits) * 2))
+    starts = np.arange(0, num_tracts, per_minishard)
+    ends = np.minimum(starts + per_minishard, num_tracts)
 
-    while tract_start < num_tracts:
-        tract_end = min(tract_end, num_tracts)
-        last_size += length_of_tract_minishard(
-            tract_start, tract_end, offsets, len(scalar_names)
-        )
-        minishard_indices[index] = last_size - (tract_end - tract_start) * 24
-        minishard_indices[index + 1] = last_size
-        tract_start, tract_end = tract_end, tract_end + per_minishard
-        index += 2
+    sizes = length_of_tract_minishard(starts, ends, offsets, len(scalar_names))
 
-    minishard_indices[index:] = last_size + 8
+    last_sizes = np.cumsum(sizes)
+
+    minishard_indices = np.zeros((2**minishard_bits) * 2, dtype=np.int64)
+
+    minishard_indices[0:2*len(starts):2] = last_sizes - (ends - starts) * 24
+    minishard_indices[1:2*len(starts):2] = last_sizes
+
+    minishard_indices[2*len(starts):] = last_sizes[-1] + 8
+
     np.asarray(minishard_indices, dtype="<u8").tofile(f)
 
     # Write minishards
