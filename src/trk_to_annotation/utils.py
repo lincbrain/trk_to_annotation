@@ -19,7 +19,6 @@ from trk_to_annotation.tract_sharding import number_of_minishard_bits_tracts
 # ----------------------------
 WORLD_SPACE_DIMENSION = 1
 LIMIT = 50000
-np.random.seed(0)
 
 
 def convert_to_native(data):
@@ -124,7 +123,7 @@ def generate_info_dict(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarr
     }
 
 
-def get_spaticals(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarray, grid_densities: list[int]) -> list[dict[str, bytes]]:
+def get_spatials(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarray, grid_densities: list[int]) -> list[dict[str, bytes]]:
     """For each spatial level find which lines belong to which sections
     Then return a list of dictionaries where each index corresponds to a density level and
     contains a dictionary mapping cell keys to byte buffers of format "x_y_z"
@@ -167,7 +166,7 @@ def get_spaticals(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarray, g
     tract_level = np.full(tract_count, -1)
     rand_values = np.random.rand(tract_count)
     for density_index, grid_density in enumerate(grid_densities):
-        prob = min(50000 / (segments.shape[0] / (grid_density ** 3)), 1.0)
+        prob = min(LIMIT / (segments.shape[0] / (grid_density ** 3)), 1.0)
         mask = rand_values <= prob
         tract_level[mask] = density_index
         rand_values[mask] = 2.0
@@ -284,7 +283,7 @@ def write_spatial_and_info(
     """
 
     # Collect scalar names
-    spatials = get_spaticals(segments, bbox, offsets, grid_densities)
+    spatials = get_spatials(segments, bbox, offsets, grid_densities)
 
     # Write spatial index files
     for density_index, grid_density in enumerate(grid_densities):
