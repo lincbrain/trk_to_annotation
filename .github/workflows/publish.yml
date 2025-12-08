@@ -1,8 +1,7 @@
 name: Upload Python Package to PyPI when a Release is Created
 
 on:
-  release:
-    types: [created]
+  pull_request:
 
 jobs:
   pypi-publish:
@@ -10,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/trk-to-annotation/
+      url: https://test.pypi.org/p/trk-to-annotation/
     permissions:
       id-token: write
     steps:
