@@ -37,8 +37,50 @@ def convert_to_native(data):
         return data
 
 
+def lta_data(matrix, src="unknown", dst="unknown"):
+    """
+    Return the string content of a .lta file for a given 4x4 matrix.
+
+    Parameters
+    ----------
+    matrix : np.ndarray
+        4x4 transformation matrix.
+    src : str
+        Source volume info.
+    dst : str
+        Destination volume info.
+
+    Returns
+    -------
+    str
+        The formatted .lta file content.
+    """
+    if matrix.shape != (4, 4):
+        raise ValueError("Matrix must be 4x4")
+
+    lines = []
+    lines.append("type      = 1")
+    lines.append("nxforms   = 1")
+    lines.append("mean      = 0.0000 0.0000 0.0000")
+    lines.append("sigma     = 1.0000")
+    lines.append("1 4 4")
+
+    # Matrix rows
+    for row in matrix:
+        lines.append(" ".join(f"{val:.6f}" for val in row))
+
+    # Volume info
+    lines.append("src volume info")
+    lines.append(src)
+    lines.append("dst volume info")
+    lines.append(dst)
+
+    return "\n".join(lines)
+
+
 def save_lta(matrix, filename, src="unknown", dst="unknown"):
-    """Save a 4x4 transformation matrix to a .lta file (FreeSurfer format).
+    """
+    Save a 4x4 transformation matrix to a .lta file.
 
     Parameters
     ----------
@@ -51,25 +93,9 @@ def save_lta(matrix, filename, src="unknown", dst="unknown"):
     dst : str
         Destination volume info.
     """
-    if matrix.shape != (4, 4):
-        raise ValueError("Matrix must be 4x4")
-
+    content = lta_data(matrix, src, dst)
     with open(filename, "w") as f:
-        f.write("type      = 1\n")
-        f.write("nxforms   = 1\n")
-        f.write("mean      = 0.0000 0.0000 0.0000\n")
-        f.write("sigma     = 1.0000\n")
-        f.write("1 4 4\n")
-
-        # Write matrix row by row
-        for row in matrix:
-            f.write(" ".join(f"{val:.6f}" for val in row) + "\n")
-
-        # Minimal volume info
-        f.write("src volume info\n")
-        f.write(f"{src}\n")
-        f.write("dst volume info\n")
-        f.write(f"{dst}\n")
+        f.write(content)
 
 
 def generate_info_dict(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarray, grid_densities: list[int], sharding: bool = True) -> dict:
