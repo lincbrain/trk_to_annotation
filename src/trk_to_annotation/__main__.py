@@ -13,7 +13,7 @@ from trk_to_annotation.preprocessing import load_from_file, split_along_grid_bat
 from trk_to_annotation.segmentation import make_segmentation_layer
 from trk_to_annotation.tract_sharding import write_tract_shard
 from trk_to_annotation.id_sharding import write_id_shard
-from trk_to_annotation.utils import write_spatial_and_info
+from trk_to_annotation.utils import save_lta, write_spatial_and_info
 
 
 logging.basicConfig(
@@ -44,7 +44,7 @@ def main(trk_file: str, output_dir: str, segmentation_output_dir: str, grid_dens
 
     start_time = time.time()
 
-    pre_segments, bbox, offsets = load_from_file(trk_file)
+    pre_segments, bbox, offsets, affine = load_from_file(trk_file)
     split_segments, offsets = split_along_grid_batched(
         pre_segments, bbox, [grid_densities[-1]]*3, offsets)
 
@@ -61,6 +61,9 @@ def main(trk_file: str, output_dir: str, segmentation_output_dir: str, grid_dens
     logging.info("Writing spatial layers and info file...")
     write_spatial_and_info(split_segments, bbox,
                            grid_densities, offsets, output_dir)
+
+    logging.info("Writing transformation to file...")
+    save_lta(affine, os.path.join(output_dir, "transform.lta"))
 
     logging.info("Creating segmentation layer...")
     make_segmentation_layer(split_segments, 1, bbox, segmentation_output_dir)
