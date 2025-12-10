@@ -104,7 +104,7 @@ def load_from_file(
 
     logging.info("load_from_file: Done")
 
-    return segments, np.array([lb, ub]), offsets
+    return segments, np.array([lb, ub]), offsets, tracts.affine
 
 
 def split_along_grid_batched(

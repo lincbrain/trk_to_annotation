@@ -5,3 +5,4 @@ precomputed_segmentaitons*/*
 build/*
 dist/*
 src/trk_to_annotation.egg-info/*
+trk_to_annotation/_version.py

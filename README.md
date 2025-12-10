@@ -9,7 +9,7 @@ pip install .
 
 ## Usage
 ```
-python -m trk2annotation <trk_file> \
+python -m trk_to_annotation <trk_file> \
     --annotation_output_dir ./precomputed_annotations \
     --segmentation_output_dir ./precomputed_segmentations \
     --grid_densities 1 2 4 8 16
