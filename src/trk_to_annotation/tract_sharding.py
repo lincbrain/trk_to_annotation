@@ -86,6 +86,55 @@ def number_of_minishard_bits_tracts(num_tracts: int, preshift_bits: int) -> int:
     return int(ceil(log2(ceil(num_tracts / 2**preshift_bits))))
 
 
+def tract_bytes(
+        tract_ids: list[int],
+        offsets: np.ndarray,
+        segments: np.ndarray,
+        dtype: np.dtype = None,
+        scalar_names: np.ndarray = None
+):
+    if scalar_names is None:
+        scalar_names = [
+            name for name in segments.dtype.names if name.startswith("scalar_")]
+    if dtype is None:
+        dtype = np.dtype(
+            [
+                ("start", "<f4", 3),
+                ("end", "<f4", 3),
+                ("streamline", "<u4"),
+                ("orientation", "<f4", 3),
+                *[(name, "<f4") for name in scalar_names],
+                ("orientation_color", "<u1", 3),
+                ("padding", "u1"),
+            ]
+        )
+    ids = []
+    datas = []
+    for tract_id in tract_ids:
+        index, index_end = offsets[tract_id-1], offsets[tract_id]
+        data = np.zeros(index_end - index, dtype=dtype)
+        masked_segments = segments[index:index_end]
+
+        data["start"] = masked_segments["start"]
+        data["end"] = masked_segments["end"]
+        data["streamline"] = masked_segments["streamline"]
+        data["orientation"] = masked_segments["orientation"]
+        for name in scalar_names:
+            data[name] = masked_segments[name]
+        data["orientation_color"] = np.abs(
+            masked_segments["orientation"] * 255)
+        data["padding"] = np.zeros(data.shape[0], dtype="u1")
+
+        datas.append(data)
+        ids.append(masked_segments["id"])
+    if len(datas) == 0:
+        return np.asarray([0], dtype="<u8").tobytes()
+    
+    data = np.concatenate(datas)
+
+    return np.asarray(data.shape[0], dtype="<u8").tobytes() + data.tobytes() + np.asarray(np.concatenate(ids), dtype="<u8").tobytes()
+    
+
 # ----------------------------
 # Shard Writers
 # ----------------------------
@@ -119,6 +168,7 @@ def write_tract_minishard(
         [
             ("start", "<f4", 3),
             ("end", "<f4", 3),
+            ("streamline", "<u4"),
             ("orientation", "<f4", 3),
             *[(name, "<f4") for name in scalar_names],
             ("orientation_color", "<u1", 3),
@@ -133,6 +183,7 @@ def write_tract_minishard(
 
         data["start"] = masked_segments["start"]
         data["end"] = masked_segments["end"]
+        data["streamline"] = masked_segments["streamline"]
         data["orientation"] = masked_segments["orientation"]
         for name in scalar_names:
             data[name] = masked_segments[name]

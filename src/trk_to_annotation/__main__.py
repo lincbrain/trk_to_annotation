@@ -90,7 +90,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--segmentation_output_dir",
         type=str,
-        default="./precomputed_segmentaitons",
+        default="./precomputed_annotations/precomputed_segmentations",
         help="Output directory for precomputed segmentation",
     )
     parser.add_argument(

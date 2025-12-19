@@ -145,6 +145,8 @@ def generate_info_dict(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarr
         "upper_bound": bbox[1].tolist(),
         "annotation_type": "LINE",
         "properties": [
+            {"id": "streamline", "type": "uint32",
+                "description": "Segment streamline"},
             {"id": "orientation_x", "type": "float32",
                 "description": "Segment orientation"},
             {"id": "orientation_y", "type": "float32",
@@ -158,18 +160,24 @@ def generate_info_dict(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarr
         "relationships": [{
             "id": "tract",
             "key": "./by_tract",
-            "sharding": {
-                "@type": "neuroglancer_uint64_sharded_v1",
-                "hash": "identity",
-                "preshift_bits": 12,
-                "minishard_bits": number_of_minishard_bits_ids(len(offsets) - 1, 12),
-                "shard_bits": 0,
-                "minishard_index_encoding": "raw",
-                "data_encoding": "raw",
-            } if sharding else None
+            **(
+                {
+                    "sharding": {
+                        "@type": "neuroglancer_uint64_sharded_v1",
+                        "hash": "identity",
+                        "preshift_bits": 12,
+                        "minishard_bits": number_of_minishard_bits_ids(len(offsets) - 1, 12),
+                        "shard_bits": 0,
+                        "minishard_index_encoding": "raw",
+                        "data_encoding": "raw",
+                    }
+                } if sharding else {}
+            )
         }],
         "by_id": {"key": "./by_id",
-                  "sharding": {
+            **(
+                {
+                    "sharding": {
                       "@type": "neuroglancer_uint64_sharded_v1",
                       "hash": "identity",
                       "preshift_bits": 12,
@@ -177,7 +185,10 @@ def generate_info_dict(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarr
                       "shard_bits": 0,
                       "minishard_index_encoding": "raw",
                       "data_encoding": "raw",
-                  } if sharding else None},
+                  }
+                } if sharding else {}
+            )
+        },
         "spatial": [
             {"key": str(
                 i), "grid_shape": [grid_density]*3, "chunk_size": (dimensions/grid_density).tolist(), "limit": LIMIT}
@@ -274,6 +285,7 @@ def get_spatials(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarray, gr
         file_output_dtype = np.dtype([
             ("start", "<f4", 3),
             ("end", "<f4", 3),
+            ("streamline", "<u4"),
             ("orientation", "<f4", 3),
             *[(name, "<f4") for name in scalar_names],
             ("orientation_color", "<u1", 3),
@@ -286,6 +298,7 @@ def get_spatials(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarray, gr
             if len(annotations) > 0:
                 data = np.zeros(len(annotations), dtype=file_output_dtype)
                 data["start"], data["end"] = annotations["start"], annotations["end"]
+                data["streamline"] = annotations["streamline"]
                 data["orientation"] = annotations["orientation"]
                 for name in scalar_names:
                     data[name] = annotations[name]

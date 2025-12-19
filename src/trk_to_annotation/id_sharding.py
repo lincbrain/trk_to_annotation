@@ -102,6 +102,7 @@ def write_id_minishard(
         [
             ("start", "<f4", 3),
             ("end", "<f4", 3),
+            ("streamline", "<u4"),
             ("orientation", "<f4", 3),
             *[(name, "<f4") for name in scalar_names],
             ("orientation_color", "<u1", 3),
@@ -117,6 +118,7 @@ def write_id_minishard(
     data["start"] = masked_segments["start"]
     data["end"] = masked_segments["end"]
     data["orientation"] = masked_segments["orientation"]
+    data["streamline"] = masked_segments["streamline"]
     for name in scalar_names:
         data[name] = masked_segments[name]
     data["orientation_color"] = np.abs(masked_segments["orientation"] * 255)
