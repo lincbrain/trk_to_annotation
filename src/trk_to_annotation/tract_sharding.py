@@ -109,7 +109,7 @@ def tract_bytes(
             ]
         )
     ids = []
-    datas = []
+    data_list = []
     for tract_id in tract_ids:
         index, index_end = offsets[tract_id-1], offsets[tract_id]
         data = np.zeros(index_end - index, dtype=dtype)
@@ -125,12 +125,12 @@ def tract_bytes(
             masked_segments["orientation"] * 255)
         data["padding"] = np.zeros(data.shape[0], dtype="u1")
 
-        datas.append(data)
+        data_list.append(data)
         ids.append(masked_segments["id"])
-    if len(datas) == 0:
+    if len(data_list) == 0:
         return np.asarray([0], dtype="<u8").tobytes()
     
-    data = np.concatenate(datas)
+    data = np.concatenate(data_list)
 
     return np.asarray(data.shape[0], dtype="<u8").tobytes() + data.tobytes() + np.asarray(np.concatenate(ids), dtype="<u8").tobytes()
     
