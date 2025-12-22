@@ -20,7 +20,7 @@ Arguments
 | :---:   | :---: | :---: | :---: |
 | trk_file | ✅ | — | Path to the input .trk file |
 | --annotation_output_dir | ❌ | ./precomputed_annotations | Output directory for precomputed annotations |
-| --segmentation_output_dir | ❌ | ./precomputed_segmentations | Output directory for precomputed segmentations |
+| --segmentation_output_dir | ❌ | ./precomputed_annotations/precomputed_segmentations | Output directory for precomputed segmentations |
 | --grid_densities | ❌ | [1, 2, 4, 8, 16] |Grid densities (powers of two, ascending order) |
 
 ## Running server for neuroglancer
