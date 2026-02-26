@@ -62,9 +62,9 @@ def make_segmentation_layer(segments: np.ndarray, resolution: int, bbox: np.ndar
 
     vol = CloudVolume(output_dir, info=info, compress=False)
     vol.commit_info()
-    vol[math.floor(bbox[0][0]): math.floor(bbox[0][0]) + d_xyz[0]*chunk_size,
-        math.floor(bbox[0][1]): math.floor(bbox[0][1]) + d_xyz[1]*chunk_size,
-        math.floor(bbox[0][2]): math.floor(bbox[0][2]) + d_xyz[2]*chunk_size] = grid[:, :, :]
+    vol[math.floor(bbox[0][0]): math.floor(bbox[0][0]) + int(d_xyz[0])*chunk_size,
+        math.floor(bbox[0][1]): math.floor(bbox[0][1]) + int(d_xyz[1])*chunk_size,
+        math.floor(bbox[0][2]): math.floor(bbox[0][2]) + int(d_xyz[2])*chunk_size] = grid[:, :, :]
     
 def generate_info(resolution: int, bbox: np.ndarray, chunk_size: list[int] = [128, 128, 128]):
     """Make a segmentation layer to go with the annotation layer (used for selecting tracts)
