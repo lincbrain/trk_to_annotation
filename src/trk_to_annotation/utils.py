@@ -196,6 +196,36 @@ def generate_info_dict(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarr
         ]
     }
 
+def get_spaticals_dict(segments: np.ndarray, bbox: np.ndarray, grid_density: int) -> dict[str, np.ndarray]:
+
+    dimensions = bbox[1] - bbox[0]
+
+    # Grid shape and chunk size
+    grid_shape = [grid_density] * 3
+
+    # Spatial index dictionary
+    spatial_index = {f"{x}_{y}_{z}": np.array([]) for x in range(grid_shape[0])
+                        for y in range(grid_shape[1]) for z in range(grid_shape[2])}
+
+    if len(segments) > 0:
+        cells = np.floor(
+            (((segments["start"] + segments["end"]
+                ) / 2 - bbox[0]) / dimensions) * grid_shape
+        ).astype(int)
+
+        # Fill spatial index
+        for i in range(grid_shape[0]):
+            mask_x = cells[:, 0] == i
+            if np.any(mask_x):
+                seg_x, cells_x = segments[mask_x], cells[mask_x]
+                for j in range(grid_shape[1]):
+                    mask_xy = cells_x[:, 1] == j
+                    if np.any(mask_xy):
+                        seg_xy, cells_xy = seg_x[mask_xy], cells_x[mask_xy]
+                        for k in range(grid_shape[2]):
+                            mask_xyz = cells_xy[:, 2] == k
+                            spatial_index[f"{i}_{j}_{k}"] = seg_xy[mask_xyz]
+    return spatial_index
 
 def get_spatials(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarray, grid_densities: list[int]) -> list[dict[str, bytes]]:
     """For each spatial level find which lines belong to which sections
@@ -235,7 +265,6 @@ def get_spatials(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarray, gr
 
     """
     np.random.seed(0)
-    dimensions = bbox[1] - bbox[0]
     tract_count = segments["streamline"][-1]
     tract_level = np.full(tract_count, -1)
     rand_values = np.random.rand(tract_count)
@@ -256,31 +285,8 @@ def get_spatials(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarray, gr
             axis=0
         ) if len(selected_tracts) > 0 else np.zeros(0, dtype=segments.dtype)
 
-        # Grid shape and chunk size
-        grid_shape = [grid_density] * 3
+        spatial_index = get_spaticals_dict(segments_tmp, bbox, grid_density)
 
-        # Spatial index dictionary
-        spatial_index = {f"{x}_{y}_{z}": np.array([]) for x in range(grid_shape[0])
-                         for y in range(grid_shape[1]) for z in range(grid_shape[2])}
-
-        if len(segments_tmp) > 0:
-            cells = np.floor(
-                (((segments_tmp["start"] + segments_tmp["end"]
-                   ) / 2 - bbox[0]) / dimensions) * grid_shape
-            ).astype(int)
-
-            # Fill spatial index
-            for i in range(grid_shape[0]):
-                mask_x = cells[:, 0] == i
-                if np.any(mask_x):
-                    seg_x, cells_x = segments_tmp[mask_x], cells[mask_x]
-                    for j in range(grid_shape[1]):
-                        mask_xy = cells_x[:, 1] == j
-                        if np.any(mask_xy):
-                            seg_xy, cells_xy = seg_x[mask_xy], cells_x[mask_xy]
-                            for k in range(grid_shape[2]):
-                                mask_xyz = cells_xy[:, 2] == k
-                                spatial_index[f"{i}_{j}_{k}"] = seg_xy[mask_xyz]
         # Output dtype for Neuroglancer
         file_output_dtype = np.dtype([
             ("start", "<f4", 3),
