@@ -8,18 +8,46 @@ License: Apache-2.0
 import logging
 from typing import List, Tuple
 import nibabel
+from nibabel.affines import voxel_sizes as _voxel_sizes
 import numpy as np
 
-from trk_to_annotation.datatypes import SEGMENT_DTYPE
+from trk_to_annotation.datatypes import SEGMENT_DTYPE, LABEL_EXTRA_DTYPE
 
 # ----------------------------
 # Configuration
 # ----------------------------
 BATCH_SIZE = 100_000_000
+LABEL_SCALAR_NAME = "label_id"
+
+
+def label_ids_to_colors(label_ids: np.ndarray) -> np.ndarray:
+    """
+    Deterministically assign a random RGB color to each unique label id.
+
+    Each id is seeded independently (seed = the id itself), so the color for
+    a given label id is stable across batches/runs regardless of which other
+    ids are present or the order they're encountered in.
+
+    Parameters
+    ----------
+    label_ids : np.ndarray
+        Integer label ids, one per segment.
+
+    Returns
+    -------
+    np.ndarray
+        (N, 3) uint8 array of RGB colors, one row per input label id.
+    """
+    unique_ids = np.unique(label_ids)
+    lut = np.zeros((int(unique_ids.max()) + 1, 3), dtype=np.uint8)
+    for uid in unique_ids:
+        rng = np.random.default_rng(int(uid))
+        lut[uid] = rng.integers(0, 256, size=3, dtype=np.uint8)
+    return lut[label_ids]
 
 
 def load_from_file(
-    trk_file: str
+    trk_file: str, use_labels: bool = True
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Load streamlines from a .trk file.
@@ -72,11 +100,19 @@ def load_from_file(
     line_start = points[start_idx, :3]
     line_end = points[end_idx, :3]
 
-    # Scalar keys
-    scalar_keys = list(tracts.tractogram.data_per_point.keys())
+    # Scalar keys (label_id is handled separately below, not as a generic
+    # float32 scalar)
+    scalar_keys = [
+        name for name in tracts.tractogram.data_per_point.keys()
+        if name != LABEL_SCALAR_NAME
+    ]
+    has_label = use_labels and LABEL_SCALAR_NAME in tracts.tractogram.data_per_point.keys()
+
     segment_dtype = list(SEGMENT_DTYPE)
     for name in scalar_keys:
         segment_dtype.append(("scalar_" + name, "f4"))
+    if has_label:
+        segment_dtype.extend(LABEL_EXTRA_DTYPE)
 
     # Streamline IDs
     line_tract = np.concatenate([np.full(length - 1, i + 1)
@@ -99,12 +135,28 @@ def load_from_file(
         segments["scalar_" + name] = np.reshape((tracts.tractogram.data_per_point[name]._data[start_idx] +
                                                  tracts.tractogram.data_per_point[name]._data[end_idx])/2, (-1))
 
+    # Bundle label id / name / color (label_id is constant along a
+    # streamline, so start/end average equals the exact value)
+    if has_label:
+        label_scalar = tracts.tractogram.data_per_point[LABEL_SCALAR_NAME]._data
+        label_ids = np.rint(
+            (label_scalar[start_idx] + label_scalar[end_idx]) / 2
+        ).reshape(-1).astype(np.uint16)
+        segments["label_id"] = label_ids
+        segments["label_name"] = label_ids
+        segments["label_color"] = label_ids_to_colors(label_ids)
+
     offsets = np.append(streamlines._offsets -
                         np.arange(len(streamlines._offsets)), len(segments))
 
     logging.info("load_from_file: Done")
 
-    return segments, np.array([lb, ub]), offsets, tracts.affine
+    # Points were transformed into voxel-index space above (not world mm),
+    # so Neuroglancer needs the per-axis voxel size (mm/index-step) to scale
+    # these coordinates back to real physical distances.
+    voxel_sizes_mm = _voxel_sizes(tracts.affine)
+
+    return segments, np.array([lb, ub]), offsets, tracts.affine, voxel_sizes_mm
 
 
 def split_along_grid_batched(

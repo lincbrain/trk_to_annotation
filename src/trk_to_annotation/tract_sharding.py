@@ -12,11 +12,20 @@ from typing import BinaryIO
 
 import numpy as np
 
+from trk_to_annotation.datatypes import LABEL_EXTRA_BYTES, LABEL_ALIGN_PAD_FIELD
+
+
+def _extra_bytes(segments: np.ndarray, scalar_names: list) -> int:
+    """Extra per-record bytes beyond the 44 fixed fields: 4 per generic
+    float32 scalar, plus LABEL_EXTRA_BYTES if bundle-label fields are present."""
+    has_label = "label_id" in segments.dtype.names
+    return 4 * len(scalar_names) + (LABEL_EXTRA_BYTES if has_label else 0)
+
 
 # ----------------------------
 # Utility Functions
 # ----------------------------
-def length_of_tract_chunk(tract_num: int, offsets: np.ndarray, scalar_size: int) -> int:
+def length_of_tract_chunk(tract_num: int, offsets: np.ndarray, extra_bytes: int) -> int:
     """
     Compute the byte length of a single tract chunk.
 
@@ -26,19 +35,24 @@ def length_of_tract_chunk(tract_num: int, offsets: np.ndarray, scalar_size: int)
         Index of the tract.
     offsets : np.ndarray
         Array of indices indicating tract boundaries.
-    scalar_size : int
-        Number of scalar fields per segment.
+    extra_bytes : int
+        Extra bytes per segment beyond the fixed record fields (start, end,
+        streamline, orientation, orientation_color, padding = 44 bytes),
+        i.e. 4 bytes per generic float32 scalar plus LABEL_EXTRA_BYTES (7)
+        when bundle-label fields are present.
 
     Returns
     -------
     int
         Byte length of the tract chunk.
     """
-    return (48 + 4 * scalar_size) * (offsets[tract_num + 1] - offsets[tract_num]) + 8
+    # Per record: 44 fixed bytes + extra_bytes (data) + 8 bytes (id, written
+    # separately after the data block). Plus one 8-byte record-count prefix.
+    return (44 + extra_bytes + 8) * (offsets[tract_num + 1] - offsets[tract_num]) + 8
 
 
 def length_of_tract_minishard(
-    tract_start: int, tract_end: int, offsets: np.ndarray, scalar_size: int
+    tract_start: int, tract_end: int, offsets: np.ndarray, extra_bytes: int
 ) -> int:
     """
     Compute the byte length of a minishard containing multiple tracts.
@@ -51,8 +65,9 @@ def length_of_tract_minishard(
         Ending tract index (exclusive).
     offsets : np.ndarray
         Array of indices indicating tract boundaries.
-    scalar_size : int
-        Number of scalar fields per segment.
+    extra_bytes : int
+        Extra bytes per segment beyond the fixed record fields (see
+        length_of_tract_chunk).
 
     Returns
     -------
@@ -61,7 +76,7 @@ def length_of_tract_minishard(
     """
     chunk_indices = 24 * (tract_end - tract_start)
     chunks = (
-        (48 + 4 * scalar_size) * (offsets[tract_end] - offsets[tract_start])
+        (44 + extra_bytes + 8) * (offsets[tract_end] - offsets[tract_start])
         + 8 * (tract_end - tract_start)
     )
     return chunk_indices + chunks
@@ -93,6 +108,7 @@ def tract_bytes(
         dtype: np.dtype = None,
         scalar_names: np.ndarray = None
 ):
+    has_label = "label_id" in segments.dtype.names
     if scalar_names is None:
         scalar_names = [
             name for name in segments.dtype.names if name.startswith("scalar_")]
@@ -104,8 +120,11 @@ def tract_bytes(
                 ("streamline", "<u4"),
                 ("orientation", "<f4", 3),
                 *[(name, "<f4") for name in scalar_names],
+                *([("label_id", "<u2"), ("label_name", "<u2"),
+                   ("label_color", "<u1", 3)] if has_label else []),
                 ("orientation_color", "<u1", 3),
                 ("padding", "u1"),
+                *([LABEL_ALIGN_PAD_FIELD] if has_label else []),
             ]
         )
     ids = []
@@ -121,6 +140,10 @@ def tract_bytes(
         data["orientation"] = masked_segments["orientation"]
         for name in scalar_names:
             data[name] = masked_segments[name]
+        if has_label:
+            data["label_id"] = masked_segments["label_id"]
+            data["label_name"] = masked_segments["label_name"]
+            data["label_color"] = masked_segments["label_color"]
         data["orientation_color"] = np.abs(
             masked_segments["orientation"] * 255)
         data["padding"] = np.zeros(data.shape[0], dtype="u1")
@@ -163,6 +186,8 @@ def write_tract_minishard(
     """
     scalar_names = [
         name for name in segments.dtype.names if name.startswith("scalar_")]
+    has_label = "label_id" in segments.dtype.names
+    extra_bytes = _extra_bytes(segments, scalar_names)
 
     dtype = np.dtype(
         [
@@ -171,8 +196,11 @@ def write_tract_minishard(
             ("streamline", "<u4"),
             ("orientation", "<f4", 3),
             *[(name, "<f4") for name in scalar_names],
+            *([("label_id", "<u2"), ("label_name", "<u2"),
+               ("label_color", "<u1", 3)] if has_label else []),
             ("orientation_color", "<u1", 3),
             ("padding", "u1"),
+            *([LABEL_ALIGN_PAD_FIELD] if has_label else []),
         ]
     )
 
@@ -187,6 +215,10 @@ def write_tract_minishard(
         data["orientation"] = masked_segments["orientation"]
         for name in scalar_names:
             data[name] = masked_segments[name]
+        if has_label:
+            data["label_id"] = masked_segments["label_id"]
+            data["label_name"] = masked_segments["label_name"]
+            data["label_color"] = masked_segments["label_color"]
         data["orientation_color"] = np.abs(
             masked_segments["orientation"] * 255)
         data["padding"] = np.zeros(data.shape[0], dtype="u1")
@@ -200,7 +232,7 @@ def write_tract_minishard(
     np.asarray(np.ones((tract_end - tract_start - 1)), dtype="<u8").tofile(f)
     np.asarray(
         [length_of_tract_minishard(
-            0, tract_start, offsets, len(scalar_names))],
+            0, tract_start, offsets, extra_bytes)],
         dtype="<u8",
     ).tofile(f)
     np.asarray(np.zeros((tract_end - tract_start - 1)), dtype="<u8").tofile(f)
@@ -208,7 +240,7 @@ def write_tract_minishard(
     # Write chunk sizes
     for i in range(tract_start, tract_end):
         np.asarray(
-            [length_of_tract_chunk(i, offsets, len(scalar_names))], dtype="<u8"
+            [length_of_tract_chunk(i, offsets, extra_bytes)], dtype="<u8"
         ).tofile(f)
 
 
@@ -231,6 +263,7 @@ def write_tract_shard(
     """
     scalar_names = [
         name for name in segments.dtype.names if name.startswith("scalar_")]
+    extra_bytes = _extra_bytes(segments, scalar_names)
     num_tracts = len(offsets) - 1
     minishard_bits = number_of_minishard_bits_tracts(num_tracts, preshift_bits)
     per_minishard = 2**preshift_bits
@@ -241,7 +274,7 @@ def write_tract_shard(
     starts = np.arange(0, num_tracts, per_minishard)
     ends = np.minimum(starts + per_minishard, num_tracts)
 
-    sizes = length_of_tract_minishard(starts, ends, offsets, len(scalar_names))
+    sizes = length_of_tract_minishard(starts, ends, offsets, extra_bytes)
 
     last_sizes = np.cumsum(sizes)
 

@@ -12,6 +12,7 @@ import json
 
 from trk_to_annotation.id_sharding import number_of_minishard_bits_ids
 from trk_to_annotation.tract_sharding import number_of_minishard_bits_tracts
+from trk_to_annotation.datatypes import LABEL_ALIGN_PAD_FIELD
 
 
 # ----------------------------
@@ -98,7 +99,7 @@ def save_lta(matrix, filename, src="unknown", dst="unknown"):
         f.write(content)
 
 
-def generate_info_dict(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarray, grid_densities: list[int], sharding: bool = True) -> dict:
+def generate_info_dict(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarray, grid_densities: list[int], sharding: bool = True, label_map: dict = None, voxel_sizes_mm: np.ndarray = None) -> dict:
     """generate the info dictionary for Neuroglancer precomputed annotations
 
     Parameters
@@ -137,10 +138,37 @@ def generate_info_dict(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarr
     dimensions = bbox[1] - bbox[0]
     scalar_names = [
         name for name in segments.dtype.names if name.startswith("scalar_")]
+    has_label = "label_id" in segments.dtype.names
+
+    label_properties = []
+    if has_label:
+        enum_kwargs = {}
+        if label_map:
+            sorted_ids = sorted(int(i) for i in label_map.values())
+            enum_kwargs = {
+                "enum_values": sorted_ids,
+                "enum_labels": [
+                    next(name for name, i in label_map.items() if int(i) == sid)
+                    for sid in sorted_ids
+                ],
+            }
+        label_properties = [
+            {"id": "label_id", "type": "uint16",
+                "description": "Bundle label id"},
+            {"id": "label_name", "type": "uint16",
+                "description": "Bundle label name", **enum_kwargs},
+            {"id": "label_color", "type": "rgb",
+                "description": "Random color assigned per bundle label"},
+        ]
+
+    if voxel_sizes_mm is None:
+        axis_scale = {axis: WORLD_SPACE_DIMENSION for axis in ["x", "y", "z"]}
+    else:
+        axis_scale = {axis: float(voxel_sizes_mm[i]) for i, axis in enumerate(["x", "y", "z"])}
 
     return {
         "@type": "neuroglancer_annotations_v1",
-        "dimensions": {axis: [WORLD_SPACE_DIMENSION, "mm"] for axis in ["x", "y", "z"]},
+        "dimensions": {axis: [axis_scale[axis], "mm"] for axis in ["x", "y", "z"]},
         "lower_bound": bbox[0].tolist(),
         "upper_bound": bbox[1].tolist(),
         "annotation_type": "LINE",
@@ -154,41 +182,34 @@ def generate_info_dict(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarr
             {"id": "orientation_z", "type": "float32",
                 "description": "Segment orientation"},
             *[{"id": key, "type": "float32"} for key in scalar_names],
+            *label_properties,
             {"id": "orientation_color", "type": "rgb",
                 "description": "Orientation color"},
         ],
         "relationships": [{
             "id": "tract",
             "key": "./by_tract",
-            **(
-                {
-                    "sharding": {
-                        "@type": "neuroglancer_uint64_sharded_v1",
-                        "hash": "identity",
-                        "preshift_bits": 12,
-                        "minishard_bits": number_of_minishard_bits_ids(len(offsets) - 1, 12),
-                        "shard_bits": 0,
-                        "minishard_index_encoding": "raw",
-                        "data_encoding": "raw",
-                    }
-                } if sharding else {}
-            )
-        }],
+            "sharding": {
+                "@type": "neuroglancer_uint64_sharded_v1",
+                "hash": "identity",
+                "preshift_bits": 12,
+                "minishard_bits": number_of_minishard_bits_ids(len(offsets) - 1, 12),
+                "shard_bits": 0,
+                "minishard_index_encoding": "raw",
+                "data_encoding": "raw",
+            }
+        }] if sharding else [],
         "by_id": {"key": "./by_id",
-            **(
-                {
-                    "sharding": {
-                      "@type": "neuroglancer_uint64_sharded_v1",
-                      "hash": "identity",
-                      "preshift_bits": 12,
-                      "minishard_bits": number_of_minishard_bits_tracts(len(segments), 12),
-                      "shard_bits": 0,
-                      "minishard_index_encoding": "raw",
-                      "data_encoding": "raw",
-                  }
-                } if sharding else {}
-            )
-        },
+            "sharding": {
+                "@type": "neuroglancer_uint64_sharded_v1",
+                "hash": "identity",
+                "preshift_bits": 12,
+                "minishard_bits": number_of_minishard_bits_tracts(len(segments), 12),
+                "shard_bits": 0,
+                "minishard_index_encoding": "raw",
+                "data_encoding": "raw",
+            }
+        } if sharding else {"key": ""},
         "spatial": [
             {"key": str(
                 i), "grid_shape": [grid_density]*3, "chunk_size": (dimensions/grid_density).tolist(), "limit": LIMIT}
@@ -276,6 +297,7 @@ def get_spatials(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarray, gr
 
     scalar_names = [
         name for name in segments.dtype.names if name.startswith("scalar_")]
+    has_label = "label_id" in segments.dtype.names
     spatial_levels = []
     for density_index, grid_density in enumerate(grid_densities):
 
@@ -294,8 +316,11 @@ def get_spatials(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarray, gr
             ("streamline", "<u4"),
             ("orientation", "<f4", 3),
             *[(name, "<f4") for name in scalar_names],
+            *([("label_id", "<u2"), ("label_name", "<u2"),
+               ("label_color", "<u1", 3)] if has_label else []),
             ("orientation_color", "<u1", 3),
             ("padding", "u1"),
+            *([LABEL_ALIGN_PAD_FIELD] if has_label else []),
         ])
 
         spatial_buffers = {}
@@ -308,6 +333,10 @@ def get_spatials(segments: np.ndarray, bbox: np.ndarray, offsets: np.ndarray, gr
                 data["orientation"] = annotations["orientation"]
                 for name in scalar_names:
                     data[name] = annotations[name]
+                if has_label:
+                    data["label_id"] = annotations["label_id"]
+                    data["label_name"] = annotations["label_name"]
+                    data["label_color"] = annotations["label_color"]
                 data["orientation_color"] = np.abs(
                     annotations["orientation"] * 255)
                 data["padding"] = 0
@@ -330,7 +359,10 @@ def write_spatial_and_info(
     bbox: np.ndarray,
     grid_densities: list[int],
     offsets: np.ndarray,
-    output_dir: str
+    output_dir: str,
+    label_map: dict = None,
+    sharding: bool = True,
+    voxel_sizes_mm: np.ndarray = None
 ) -> None:
     """For each spatial level find which lines belong to which sections
     Then write them to that section's file
@@ -378,7 +410,7 @@ def write_spatial_and_info(
         logging.info(f"Saved spatial index at density {grid_density}.")
 
     # Info file for Neuroglancer
-    info = generate_info_dict(segments, bbox, offsets, grid_densities)
+    info = generate_info_dict(segments, bbox, offsets, grid_densities, sharding=sharding, label_map=label_map, voxel_sizes_mm=voxel_sizes_mm)
 
     info_file_path = os.path.join(output_dir, 'info')
     with open(info_file_path, 'w') as f:
