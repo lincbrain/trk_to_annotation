@@ -12,28 +12,41 @@ from typing import BinaryIO
 
 import numpy as np
 
+from trk_to_annotation.datatypes import LABEL_EXTRA_BYTES, LABEL_ALIGN_PAD_FIELD
+
+
+def _extra_bytes(segments: np.ndarray, scalar_names: list) -> int:
+    """Extra per-record bytes beyond the 56 fixed id-record fields: 4 per
+    generic float32 scalar, plus LABEL_EXTRA_BYTES if bundle-label fields
+    are present."""
+    has_label = "label_id" in segments.dtype.names
+    return 4 * len(scalar_names) + (LABEL_EXTRA_BYTES if has_label else 0)
+
 
 # ----------------------------
 # Utility Functions
 # ----------------------------
-def length_of_id_chunk(scalar_size: int) -> int:
+def length_of_id_chunk(extra_bytes: int) -> int:
     """
     Compute the byte length of a single ID chunk.
 
     Parameters
     ----------
-    scalar_size : int
-        Number of scalar fields per segment.
+    extra_bytes : int
+        Extra bytes per segment beyond the fixed record fields (start, end,
+        streamline, orientation, orientation_color, padding, number_tracts,
+        tract_id = 56 bytes), i.e. 4 bytes per generic float32 scalar plus
+        LABEL_EXTRA_BYTES (7) when bundle-label fields are present.
 
     Returns
     -------
     int
         Byte length of the ID chunk.
     """
-    return 52 + 4 * scalar_size
+    return 56 + extra_bytes
 
 
-def length_of_id_minishard(id_start: int, id_end: int, scalar_size: int) -> int:
+def length_of_id_minishard(id_start: int, id_end: int, extra_bytes: int) -> int:
     """
     Compute the byte length of a minishard containing multiple IDs.
 
@@ -43,8 +56,9 @@ def length_of_id_minishard(id_start: int, id_end: int, scalar_size: int) -> int:
         Starting ID index.
     id_end : int
         Ending ID index (exclusive).
-    scalar_size : int
-        Number of scalar fields per segment.
+    extra_bytes : int
+        Extra bytes per segment beyond the fixed record fields (see
+        length_of_id_chunk).
 
     Returns
     -------
@@ -52,7 +66,7 @@ def length_of_id_minishard(id_start: int, id_end: int, scalar_size: int) -> int:
         Byte length of the minishard.
     """
     chunk_indices = 24 * (id_end - id_start)
-    chunks = (52 + 4 * scalar_size) * (id_end - id_start)
+    chunks = (56 + extra_bytes) * (id_end - id_start)
     return chunk_indices + chunks
 
 
@@ -97,6 +111,8 @@ def write_id_minishard(
     """
     scalar_names = [
         name for name in segments.dtype.names if name.startswith("scalar_")]
+    has_label = "label_id" in segments.dtype.names
+    extra_bytes = _extra_bytes(segments, scalar_names)
 
     dtype = np.dtype(
         [
@@ -105,8 +121,11 @@ def write_id_minishard(
             ("streamline", "<u4"),
             ("orientation", "<f4", 3),
             *[(name, "<f4") for name in scalar_names],
+            *([("label_id", "<u2"), ("label_name", "<u2"),
+               ("label_color", "<u1", 3)] if has_label else []),
             ("orientation_color", "<u1", 3),
             ("padding", "u1"),
+            *([LABEL_ALIGN_PAD_FIELD] if has_label else []),
             ("number_tracts", "<u4"),
             ("tract_id", "<u8"),
         ]
@@ -121,6 +140,10 @@ def write_id_minishard(
     data["streamline"] = masked_segments["streamline"]
     for name in scalar_names:
         data[name] = masked_segments[name]
+    if has_label:
+        data["label_id"] = masked_segments["label_id"]
+        data["label_name"] = masked_segments["label_name"]
+        data["label_color"] = masked_segments["label_color"]
     data["orientation_color"] = np.abs(masked_segments["orientation"] * 255)
     data["padding"] = np.zeros(data.shape[0], dtype="u1")
     data["number_tracts"] = 0
@@ -132,11 +155,11 @@ def write_id_minishard(
     np.asarray([id_start], dtype="<u8").tofile(f)
     np.asarray(np.ones((id_end - id_start - 1)), dtype="<u8").tofile(f)
     np.asarray(
-        [length_of_id_minishard(0, id_start, len(scalar_names))], dtype="<u8"
+        [length_of_id_minishard(0, id_start, extra_bytes)], dtype="<u8"
     ).tofile(f)
     np.asarray(np.zeros((id_end - id_start - 1)), dtype="<u8").tofile(f)
     np.asarray(
-        [length_of_id_chunk(len(scalar_names))] * (id_end - id_start), dtype="<u8"
+        [length_of_id_chunk(extra_bytes)] * (id_end - id_start), dtype="<u8"
     ).tofile(f)
 
 
@@ -157,6 +180,7 @@ def write_id_shard(
     """
     scalar_names = [
         name for name in segments.dtype.names if name.startswith("scalar_")]
+    extra_bytes = _extra_bytes(segments, scalar_names)
     num_ids = len(segments)
     minishard_bits = number_of_minishard_bits_ids(num_ids, preshift_bits)
     per_minishard = 2**preshift_bits
@@ -167,7 +191,7 @@ def write_id_shard(
     starts = np.arange(0, num_ids, per_minishard)
     ends = np.minimum(starts + per_minishard, num_ids)
 
-    sizes = length_of_id_minishard(starts, ends, len(scalar_names))
+    sizes = length_of_id_minishard(starts, ends, extra_bytes)
 
     last_sizes = np.cumsum(sizes)
 
